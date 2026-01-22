@@ -1,0 +1,18 @@
+# Build artifacts
+.build/
+MacTiler.app/
+*.xcodeproj/
+DerivedData/
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# IDE
+.idea/
+*.xcworkspace/
+xcuserdata/
