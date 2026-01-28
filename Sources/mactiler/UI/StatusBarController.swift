@@ -42,6 +42,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Preferences
+        let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        preferencesItem.target = self
+        menu.addItem(preferencesItem)
+
         // Quit
         let quitItem = NSMenuItem(title: "Quit MacTiler", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
@@ -122,6 +127,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func openAccessibilitySettings() {
         AccessibilityPermissions.openSystemPreferences()
+    }
+
+    @objc private func openPreferences() {
+        PreferencesWindowController.shared.showPreferences()
     }
 
     @objc private func quit() {
