@@ -10,6 +10,7 @@ final class Settings {
         static let windowGap = "windowGap"
         static let launchAtLogin = "launchAtLogin"
         static let showInMenuBar = "showInMenuBar"
+        static let minimizeEnabled = "minimizeEnabled"
     }
 
     private init() {}
@@ -33,6 +34,11 @@ final class Settings {
     var showInMenuBar: Bool {
         get { defaults.object(forKey: Keys.showInMenuBar) == nil ? true : defaults.bool(forKey: Keys.showInMenuBar) }
         set { defaults.set(newValue, forKey: Keys.showInMenuBar) }
+    }
+
+    var minimizeEnabled: Bool {
+        get { defaults.object(forKey: Keys.minimizeEnabled) == nil ? true : defaults.bool(forKey: Keys.minimizeEnabled) }
+        set { defaults.set(newValue, forKey: Keys.minimizeEnabled) }
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {

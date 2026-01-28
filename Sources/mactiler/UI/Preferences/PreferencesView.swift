@@ -26,12 +26,18 @@ struct PreferencesView: View {
 struct GeneralSettingsView: View {
     @State private var launchAtLogin: Bool = Settings.shared.launchAtLogin
     @State private var windowGap: Double = Double(Settings.shared.windowGap)
+    @State private var minimizeEnabled: Bool = Settings.shared.minimizeEnabled
 
     var body: some View {
         Form {
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { newValue in
                     Settings.shared.launchAtLogin = newValue
+                }
+
+            Toggle("Enable minimize/unminimize", isOn: $minimizeEnabled)
+                .onChange(of: minimizeEnabled) { newValue in
+                    Settings.shared.minimizeEnabled = newValue
                 }
 
             HStack {

@@ -108,4 +108,26 @@ final class AccessibilityElement {
     func minimize() {
         AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, true as CFBoolean)
     }
+
+    func unminimize() {
+        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, false as CFBoolean)
+    }
+
+    /// Returns the first minimized window of the frontmost application, if any.
+    static var frontmostMinimizedWindow: AccessibilityElement? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+
+        var windowsRef: AnyObject?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+        guard result == .success, let windows = windowsRef as? [AXUIElement] else { return nil }
+
+        for window in windows {
+            let element = AccessibilityElement(window)
+            if element.isMinimized {
+                return element
+            }
+        }
+        return nil
+    }
 }
