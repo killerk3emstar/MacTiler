@@ -8,8 +8,49 @@ final class WindowManager {
     private let screenManager = ScreenManager.shared
 
     private var lastMinimizedWindow: (element: AccessibilityElement, windowId: CGWindowID)?
+    private var dragMonitor: Any?
 
     private init() {}
+
+    func setupDragDetection() {
+        dragMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] _ in
+            self?.checkForDragDrift()
+        }
+    }
+
+    private func checkForDragDrift() {
+        guard Settings.shared.restoreSizeOnUntile else { return }
+
+        guard let window = AccessibilityElement.focusedWindow,
+              let windowId = window.windowId,
+              !window.isFullScreen,
+              !window.isMinimized else { return }
+
+        let state = stateStore.state(for: windowId)
+        guard state.isSnapped,
+              let snappedFrame = state.snappedFrame,
+              let currentFrame = window.frame else { return }
+
+        let tolerance: CGFloat = 5
+        let drifted = abs(currentFrame.origin.x - snappedFrame.origin.x) > tolerance
+            || abs(currentFrame.origin.y - snappedFrame.origin.y) > tolerance
+            || abs(currentFrame.width - snappedFrame.width) > tolerance
+            || abs(currentFrame.height - snappedFrame.height) > tolerance
+
+        if drifted {
+            if let originalFrame = state.originalFrame {
+                let restoredFrame = CGRect(
+                    x: currentFrame.origin.x,
+                    y: currentFrame.origin.y,
+                    width: originalFrame.width,
+                    height: originalFrame.height
+                )
+                window.setFrame(restoredFrame)
+                Logger.log("Drag detected: restored original size")
+            }
+            stateStore.resetToFloating(for: windowId)
+        }
+    }
 
     func handleDirection(_ direction: SnapDirection) {
         Logger.action("Direction: \(direction)")
@@ -68,6 +109,8 @@ final class WindowManager {
         let windowTitle = window.title ?? "Unknown"
         Logger.log("Window: \"\(windowTitle)\" (id: \(windowId))")
 
+        validateWindowState(window: window, windowId: windowId)
+
         let currentState = stateStore.state(for: windowId)
         Logger.log("Current state: \(currentState.snapPosition)")
 
@@ -90,6 +133,8 @@ final class WindowManager {
             return
         }
 
+        validateWindowState(window: window, windowId: windowId)
+
         let currentState = stateStore.state(for: windowId)
         let action = stateMachine.actionForMaximize(currentState: currentState)
 
@@ -108,6 +153,8 @@ final class WindowManager {
               !window.isMinimized else {
             return
         }
+
+        validateWindowState(window: window, windowId: windowId)
 
         let currentState = stateStore.state(for: windowId)
         let action = stateMachine.actionForRestore(currentState: currentState)
@@ -128,6 +175,8 @@ final class WindowManager {
               let currentFrame = window.frame else {
             return
         }
+
+        validateWindowState(window: window, windowId: windowId)
 
         guard let screen = screenManager.screen(for: window) else { return }
 
@@ -180,6 +229,8 @@ final class WindowManager {
             return
         }
 
+        validateWindowState(window: window, windowId: windowId)
+
         let currentState = stateStore.state(for: windowId)
         let windowTitle = window.title ?? "Unknown"
         Logger.log("Moving \"\(windowTitle)\" to adjacent monitor (\(direction)), state: \(currentState.snapPosition)")
@@ -188,6 +239,9 @@ final class WindowManager {
             // Snapped: recalculate same position on target screen
             let targetFrame = SnapZone.calculateFrame(for: currentState.snapPosition, on: targetScreen)
             window.setFrame(targetFrame)
+            if let achievedFrame = window.frame {
+                stateStore.setSnappedFrame(achievedFrame, for: windowId)
+            }
             Logger.success("Moved to adjacent monitor, kept \(currentState.snapPosition)")
         } else {
             // Floating: center on target screen
@@ -207,6 +261,36 @@ final class WindowManager {
             )
             window.setFrame(centeredFrame)
             Logger.success("Moved to adjacent monitor, centered")
+        }
+    }
+
+    private func validateWindowState(window: AccessibilityElement, windowId: CGWindowID) {
+        let state = stateStore.state(for: windowId)
+        guard state.isSnapped,
+              let snappedFrame = state.snappedFrame,
+              let currentFrame = window.frame else { return }
+
+        let tolerance: CGFloat = 5
+        let drifted = abs(currentFrame.origin.x - snappedFrame.origin.x) > tolerance
+            || abs(currentFrame.origin.y - snappedFrame.origin.y) > tolerance
+            || abs(currentFrame.width - snappedFrame.width) > tolerance
+            || abs(currentFrame.height - snappedFrame.height) > tolerance
+
+        if drifted {
+            Logger.log("Window manually moved/resized, resetting to floating")
+
+            if Settings.shared.restoreSizeOnUntile, let originalFrame = state.originalFrame {
+                let restoredFrame = CGRect(
+                    x: currentFrame.origin.x,
+                    y: currentFrame.origin.y,
+                    width: originalFrame.width,
+                    height: originalFrame.height
+                )
+                window.setFrame(restoredFrame)
+                Logger.log("Restored original size: \(originalFrame.width)x\(originalFrame.height)")
+            }
+
+            stateStore.resetToFloating(for: windowId)
         }
     }
 
@@ -271,6 +355,11 @@ final class WindowManager {
                 Logger.log("Window couldn't achieve target size, re-anchoring position")
                 window.position = CGPoint(x: adjustedX, y: adjustedY)
             }
+        }
+
+        // Store achieved frame for drift detection
+        if let achievedFrame = window.frame {
+            stateStore.setSnappedFrame(achievedFrame, for: windowId)
         }
 
         // Update state

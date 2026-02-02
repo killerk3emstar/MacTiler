@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.log("Status bar ready")
 
         shortcutManager.setupShortcuts()
+
+        WindowManager.shared.setupDragDetection()
+
         Logger.success("MacTiler ready!")
     }
 

@@ -65,6 +65,16 @@ final class WindowStateStore {
         states.removeValue(forKey: windowId)
     }
 
+    func setSnappedFrame(_ frame: CGRect, for windowId: CGWindowID) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if var state = states[windowId] {
+            state.snappedFrame = frame
+            states[windowId] = state
+        }
+    }
+
     func resetToFloating(for windowId: CGWindowID) {
         lock.lock()
         defer { lock.unlock() }
@@ -72,6 +82,7 @@ final class WindowStateStore {
         if var state = states[windowId] {
             state.snapPosition = .floating
             state.originalFrame = nil
+            state.snappedFrame = nil
             states[windowId] = state
         }
     }

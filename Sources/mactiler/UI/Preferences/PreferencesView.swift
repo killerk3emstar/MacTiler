@@ -27,6 +27,7 @@ struct GeneralSettingsView: View {
     @State private var launchAtLogin: Bool = Settings.shared.launchAtLogin
     @State private var windowGap: Double = Double(Settings.shared.windowGap)
     @State private var minimizeEnabled: Bool = Settings.shared.minimizeEnabled
+    @State private var restoreSizeOnUntile: Bool = Settings.shared.restoreSizeOnUntile
 
     var body: some View {
         Form {
@@ -38,6 +39,11 @@ struct GeneralSettingsView: View {
             Toggle("Enable minimize/unminimize", isOn: $minimizeEnabled)
                 .onChange(of: minimizeEnabled) { newValue in
                     Settings.shared.minimizeEnabled = newValue
+                }
+
+            Toggle("Restore original size when untiled", isOn: $restoreSizeOnUntile)
+                .onChange(of: restoreSizeOnUntile) { newValue in
+                    Settings.shared.restoreSizeOnUntile = newValue
                 }
 
             HStack {
