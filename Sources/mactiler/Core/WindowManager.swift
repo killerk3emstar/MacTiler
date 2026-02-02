@@ -242,6 +242,26 @@ final class WindowManager {
             if let achievedFrame = window.frame {
                 stateStore.setSnappedFrame(achievedFrame, for: windowId)
             }
+
+            // Rebase originalFrame onto target screen so restore doesn't jump back
+            if let origFrame = currentState.originalFrame {
+                let targetVisible = targetScreen.visibleFrame
+                let screenHeight = NSScreen.screens.first?.frame.height ?? targetScreen.frame.height
+                let topY = screenHeight - targetVisible.origin.y - targetVisible.height
+
+                let centeredX = targetVisible.origin.x + (targetVisible.width - origFrame.width) / 2
+                let centeredY = topY + (targetVisible.height - origFrame.height) / 2
+
+                var updatedState = stateStore.state(for: windowId)
+                updatedState.originalFrame = CGRect(
+                    x: centeredX,
+                    y: centeredY,
+                    width: origFrame.width,
+                    height: origFrame.height
+                )
+                stateStore.updateState(updatedState)
+            }
+
             Logger.success("Moved to adjacent monitor, kept \(currentState.snapPosition)")
         } else {
             // Floating: center on target screen

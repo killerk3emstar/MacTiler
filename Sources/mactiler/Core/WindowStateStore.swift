@@ -88,7 +88,7 @@ final class WindowStateStore {
     }
 
     private func setupCleanupTimer() {
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             self?.cleanupStaleStates()
         }
     }
