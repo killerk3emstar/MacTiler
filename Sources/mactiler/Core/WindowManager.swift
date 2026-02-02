@@ -146,6 +146,70 @@ final class WindowManager {
         stateStore.resetToFloating(for: windowId)
     }
 
+    func moveToMonitor(_ direction: SnapDirection) {
+        Logger.action("Move to monitor: \(direction)")
+
+        guard AccessibilityPermissions.isGranted else {
+            Logger.error("No accessibility permission")
+            AccessibilityPermissions.requestPermissions()
+            return
+        }
+
+        guard let window = AccessibilityElement.focusedWindow else {
+            Logger.error("No focused window")
+            return
+        }
+
+        guard let windowId = window.windowId else {
+            Logger.error("Could not get window ID")
+            return
+        }
+
+        guard !window.isFullScreen, !window.isMinimized else {
+            Logger.log("Window is fullscreen or minimized, ignoring")
+            return
+        }
+
+        guard let currentScreen = screenManager.screen(for: window) else {
+            Logger.error("Could not determine current screen")
+            return
+        }
+
+        guard let targetScreen = screenManager.adjacentScreen(to: currentScreen, direction: direction) else {
+            Logger.log("No adjacent screen in direction \(direction)")
+            return
+        }
+
+        let currentState = stateStore.state(for: windowId)
+        let windowTitle = window.title ?? "Unknown"
+        Logger.log("Moving \"\(windowTitle)\" to adjacent monitor (\(direction)), state: \(currentState.snapPosition)")
+
+        if currentState.snapPosition != .floating {
+            // Snapped: recalculate same position on target screen
+            let targetFrame = SnapZone.calculateFrame(for: currentState.snapPosition, on: targetScreen)
+            window.setFrame(targetFrame)
+            Logger.success("Moved to adjacent monitor, kept \(currentState.snapPosition)")
+        } else {
+            // Floating: center on target screen
+            guard let currentFrame = window.frame else { return }
+            let targetVisible = targetScreen.visibleFrame
+            let screenHeight = NSScreen.screens.first?.frame.height ?? targetScreen.frame.height
+            let topY = screenHeight - targetVisible.origin.y - targetVisible.height
+
+            let centeredX = targetVisible.origin.x + (targetVisible.width - currentFrame.width) / 2
+            let centeredY = topY + (targetVisible.height - currentFrame.height) / 2
+
+            let centeredFrame = CGRect(
+                x: centeredX,
+                y: centeredY,
+                width: currentFrame.width,
+                height: currentFrame.height
+            )
+            window.setFrame(centeredFrame)
+            Logger.success("Moved to adjacent monitor, centered")
+        }
+    }
+
     private func executeAction(_ action: SnapAction, on window: AccessibilityElement, windowId: CGWindowID) {
         switch action {
         case .snapTo(let position):
@@ -183,6 +247,31 @@ final class WindowManager {
 
         // Apply the frame
         window.setFrame(targetFrame)
+
+        // Post-adjust: if the window couldn't shrink to target size,
+        // re-anchor it to the correct edge so it doesn't overflow off-screen
+        if let actualFrame = window.frame {
+            var adjustedX = targetFrame.origin.x
+            var adjustedY = targetFrame.origin.y
+            var needsAdjust = false
+
+            if position.isRightAligned && actualFrame.width > targetFrame.width {
+                let targetRightEdge = targetFrame.origin.x + targetFrame.width
+                adjustedX = targetRightEdge - actualFrame.width
+                needsAdjust = true
+            }
+
+            if position.isBottomAligned && actualFrame.height > targetFrame.height {
+                let targetBottomEdge = targetFrame.origin.y + targetFrame.height
+                adjustedY = targetBottomEdge - actualFrame.height
+                needsAdjust = true
+            }
+
+            if needsAdjust {
+                Logger.log("Window couldn't achieve target size, re-anchoring position")
+                window.position = CGPoint(x: adjustedX, y: adjustedY)
+            }
+        }
 
         // Update state
         stateStore.setSnapPosition(position, for: windowId)

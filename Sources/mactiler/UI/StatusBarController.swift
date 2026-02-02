@@ -34,6 +34,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        menu.addItem(createMenuItem(title: "Move to Left Monitor", action: #selector(moveMonitorLeft), shortcut: .moveMonitorLeft))
+        menu.addItem(createMenuItem(title: "Move to Right Monitor", action: #selector(moveMonitorRight), shortcut: .moveMonitorRight))
+        menu.addItem(createMenuItem(title: "Move to Upper Monitor", action: #selector(moveMonitorUp), shortcut: .moveMonitorUp))
+        menu.addItem(createMenuItem(title: "Move to Lower Monitor", action: #selector(moveMonitorDown), shortcut: .moveMonitorDown))
+
+        menu.addItem(NSMenuItem.separator())
+
         // Accessibility status (will be updated dynamically)
         let accessibilityItem = NSMenuItem(title: accessibilityStatusText, action: #selector(openAccessibilitySettings), keyEquivalent: "")
         accessibilityItem.target = self
@@ -123,6 +130,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func center() {
         windowManager.center()
+    }
+
+    @objc private func moveMonitorLeft() {
+        windowManager.moveToMonitor(.left)
+    }
+
+    @objc private func moveMonitorRight() {
+        windowManager.moveToMonitor(.right)
+    }
+
+    @objc private func moveMonitorUp() {
+        windowManager.moveToMonitor(.up)
+    }
+
+    @objc private func moveMonitorDown() {
+        windowManager.moveToMonitor(.down)
     }
 
     @objc private func openAccessibilitySettings() {

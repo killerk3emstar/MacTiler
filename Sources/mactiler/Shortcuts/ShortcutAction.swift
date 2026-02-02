@@ -8,6 +8,10 @@ extension KeyboardShortcuts.Name {
     static let maximize = Self("maximize")
     static let restore = Self("restore")
     static let center = Self("center")
+    static let moveMonitorLeft = Self("moveMonitorLeft")
+    static let moveMonitorRight = Self("moveMonitorRight")
+    static let moveMonitorUp = Self("moveMonitorUp")
+    static let moveMonitorDown = Self("moveMonitorDown")
 }
 
 enum ShortcutAction: String, CaseIterable {
@@ -18,6 +22,10 @@ enum ShortcutAction: String, CaseIterable {
     case maximize
     case restore
     case center
+    case moveMonitorLeft
+    case moveMonitorRight
+    case moveMonitorUp
+    case moveMonitorDown
 
     var keyboardShortcutName: KeyboardShortcuts.Name {
         switch self {
@@ -28,6 +36,10 @@ enum ShortcutAction: String, CaseIterable {
         case .maximize: return .maximize
         case .restore: return .restore
         case .center: return .center
+        case .moveMonitorLeft: return .moveMonitorLeft
+        case .moveMonitorRight: return .moveMonitorRight
+        case .moveMonitorUp: return .moveMonitorUp
+        case .moveMonitorDown: return .moveMonitorDown
         }
     }
 
@@ -40,6 +52,10 @@ enum ShortcutAction: String, CaseIterable {
         case .maximize: return "Maximize"
         case .restore: return "Restore"
         case .center: return "Center"
+        case .moveMonitorLeft: return "Move to Left Monitor"
+        case .moveMonitorRight: return "Move to Right Monitor"
+        case .moveMonitorUp: return "Move to Upper Monitor"
+        case .moveMonitorDown: return "Move to Lower Monitor"
         }
     }
 
@@ -59,6 +75,14 @@ enum ShortcutAction: String, CaseIterable {
             return KeyboardShortcuts.Shortcut(.delete, modifiers: [.command, .option])
         case .center:
             return KeyboardShortcuts.Shortcut(.c, modifiers: [.command, .option])
+        case .moveMonitorLeft:
+            return KeyboardShortcuts.Shortcut(.leftArrow, modifiers: [.control, .command, .option])
+        case .moveMonitorRight:
+            return KeyboardShortcuts.Shortcut(.rightArrow, modifiers: [.control, .command, .option])
+        case .moveMonitorUp:
+            return KeyboardShortcuts.Shortcut(.upArrow, modifiers: [.control, .command, .option])
+        case .moveMonitorDown:
+            return KeyboardShortcuts.Shortcut(.downArrow, modifiers: [.control, .command, .option])
         }
     }
 }

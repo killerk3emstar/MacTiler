@@ -19,7 +19,7 @@ struct PreferencesView: View {
                     Label("About", systemImage: "info.circle")
                 }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 450, height: 420)
     }
 }
 
@@ -67,6 +67,11 @@ struct ShortcutsSettingsView: View {
             shortcutRow("Maximize", name: .maximize)
             shortcutRow("Restore", name: .restore)
             shortcutRow("Center", name: .center)
+            Divider()
+            shortcutRow("Move to Left Monitor", name: .moveMonitorLeft)
+            shortcutRow("Move to Right Monitor", name: .moveMonitorRight)
+            shortcutRow("Move to Upper Monitor", name: .moveMonitorUp)
+            shortcutRow("Move to Lower Monitor", name: .moveMonitorDown)
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -75,7 +80,7 @@ struct ShortcutsSettingsView: View {
     private func shortcutRow(_ title: String, name: KeyboardShortcuts.Name) -> some View {
         HStack {
             Text(title)
-                .frame(width: 100, alignment: .leading)
+                .frame(width: 160, alignment: .leading)
             KeyboardShortcuts.Recorder(for: name)
         }
     }

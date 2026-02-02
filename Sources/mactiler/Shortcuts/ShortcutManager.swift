@@ -51,5 +51,21 @@ final class ShortcutManager {
         KeyboardShortcuts.onKeyUp(for: .center) { [weak self] in
             self?.windowManager.center()
         }
+
+        KeyboardShortcuts.onKeyUp(for: .moveMonitorLeft) { [weak self] in
+            self?.windowManager.moveToMonitor(.left)
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .moveMonitorRight) { [weak self] in
+            self?.windowManager.moveToMonitor(.right)
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .moveMonitorUp) { [weak self] in
+            self?.windowManager.moveToMonitor(.up)
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .moveMonitorDown) { [weak self] in
+            self?.windowManager.moveToMonitor(.down)
+        }
     }
 }
