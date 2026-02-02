@@ -53,6 +53,13 @@ struct SnapZone {
 
         case .bottomRightQuarter:
             return CGRect(x: x + (width + gap) / 2, y: topY + (height + gap) / 2, width: (width - gap) / 2, height: (height - gap) / 2)
+
+        case .leftStrip:
+            return CGRect(x: x, y: topY, width: (width - gap) / 4, height: height)
+
+        case .rightStrip:
+            let stripWidth = (width - gap) / 4
+            return CGRect(x: x + width - stripWidth, y: topY, width: stripWidth, height: height)
         }
     }
 }

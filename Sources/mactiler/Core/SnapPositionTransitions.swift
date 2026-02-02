@@ -32,14 +32,14 @@ extension SnapPosition {
         // From leftHalf
         case (.leftHalf, .up): return .topLeftQuarter
         case (.leftHalf, .down): return .bottomLeftQuarter
-        case (.leftHalf, .left): return nil  // Special: restore
+        case (.leftHalf, .left): return .leftStrip
         case (.leftHalf, .right): return .rightHalf
 
         // From rightHalf
         case (.rightHalf, .up): return .topRightQuarter
         case (.rightHalf, .down): return .bottomRightQuarter
         case (.rightHalf, .left): return .leftHalf
-        case (.rightHalf, .right): return nil  // Special: restore
+        case (.rightHalf, .right): return .rightStrip
 
         // From topLeftQuarter - up/down expand to half first
         case (.topLeftQuarter, .up): return .maximized
@@ -76,6 +76,18 @@ extension SnapPosition {
         case (.bottomHalf, .down): return nil  // Special: restore
         case (.bottomHalf, .left): return .bottomLeftQuarter
         case (.bottomHalf, .right): return .bottomRightQuarter
+
+        // From leftStrip
+        case (.leftStrip, .up): return .topLeftQuarter
+        case (.leftStrip, .down): return .bottomLeftQuarter
+        case (.leftStrip, .left): return nil  // Special: restore
+        case (.leftStrip, .right): return .leftHalf
+
+        // From rightStrip
+        case (.rightStrip, .up): return .topRightQuarter
+        case (.rightStrip, .down): return .bottomRightQuarter
+        case (.rightStrip, .left): return .rightHalf
+        case (.rightStrip, .right): return nil  // Special: restore
         }
     }
 
