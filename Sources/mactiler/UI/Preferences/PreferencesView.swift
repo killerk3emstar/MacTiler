@@ -28,6 +28,7 @@ struct GeneralSettingsView: View {
     @State private var windowGap: Double = Double(Settings.shared.windowGap)
     @State private var minimizeEnabled: Bool = Settings.shared.minimizeEnabled
     @State private var restoreSizeOnUntile: Bool = Settings.shared.restoreSizeOnUntile
+    @State private var animationsEnabled: Bool = Settings.shared.animationsEnabled
 
     var body: some View {
         Form {
@@ -44,6 +45,11 @@ struct GeneralSettingsView: View {
             Toggle("Restore original size when untiled", isOn: $restoreSizeOnUntile)
                 .onChange(of: restoreSizeOnUntile) { newValue in
                     Settings.shared.restoreSizeOnUntile = newValue
+                }
+
+            Toggle("Enable animations", isOn: $animationsEnabled)
+                .onChange(of: animationsEnabled) { newValue in
+                    Settings.shared.animationsEnabled = newValue
                 }
 
             HStack {

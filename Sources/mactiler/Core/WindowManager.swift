@@ -19,6 +19,8 @@ final class WindowManager {
     }
 
     private func checkForDragDrift() {
+        WindowAnimator.shared.cancel()
+
         guard Settings.shared.restoreSizeOnUntile else { return }
 
         guard let window = AccessibilityElement.focusedWindow,
@@ -109,6 +111,7 @@ final class WindowManager {
         let windowTitle = window.title ?? "Unknown"
         Logger.log("Window: \"\(windowTitle)\" (id: \(windowId))")
 
+        WindowAnimator.shared.finalizePendingAnimation()
         validateWindowState(window: window, windowId: windowId)
 
         let currentState = stateStore.state(for: windowId)
@@ -133,6 +136,7 @@ final class WindowManager {
             return
         }
 
+        WindowAnimator.shared.finalizePendingAnimation()
         validateWindowState(window: window, windowId: windowId)
 
         let currentState = stateStore.state(for: windowId)
@@ -154,6 +158,7 @@ final class WindowManager {
             return
         }
 
+        WindowAnimator.shared.finalizePendingAnimation()
         validateWindowState(window: window, windowId: windowId)
 
         let currentState = stateStore.state(for: windowId)
@@ -176,6 +181,7 @@ final class WindowManager {
             return
         }
 
+        WindowAnimator.shared.finalizePendingAnimation()
         validateWindowState(window: window, windowId: windowId)
 
         guard let screen = screenManager.screen(for: window) else { return }
@@ -191,8 +197,14 @@ final class WindowManager {
             height: currentFrame.height
         )
 
-        window.setFrame(centeredFrame)
-        stateStore.resetToFloating(for: windowId)
+        if Settings.shared.animationsEnabled {
+            WindowAnimator.shared.animate(window: window, from: currentFrame, to: centeredFrame) { [self] _ in
+                stateStore.resetToFloating(for: windowId)
+            }
+        } else {
+            window.setFrame(centeredFrame)
+            stateStore.resetToFloating(for: windowId)
+        }
     }
 
     func moveToMonitor(_ direction: SnapDirection) {
@@ -237,8 +249,34 @@ final class WindowManager {
 
         if currentState.snapPosition != .floating {
             // Snapped: recalculate same position on target screen
-            let targetFrame = SnapZone.calculateFrame(for: currentState.snapPosition, on: targetScreen)
+            let position = currentState.snapPosition
+            let targetFrame = SnapZone.calculateFrame(for: position, on: targetScreen)
             window.setFrame(targetFrame)
+
+            // Post-adjust: re-anchor if window couldn't shrink to target size
+            if let actualFrame = window.frame {
+                var adjustedX = targetFrame.origin.x
+                var adjustedY = targetFrame.origin.y
+                var needsAdjust = false
+
+                if position.isRightAligned && actualFrame.width > targetFrame.width {
+                    let targetRightEdge = targetFrame.origin.x + targetFrame.width
+                    adjustedX = targetRightEdge - actualFrame.width
+                    needsAdjust = true
+                }
+
+                if position.isBottomAligned && actualFrame.height > targetFrame.height {
+                    let targetBottomEdge = targetFrame.origin.y + targetFrame.height
+                    adjustedY = targetBottomEdge - actualFrame.height
+                    needsAdjust = true
+                }
+
+                if needsAdjust {
+                    Logger.log("Window couldn't achieve target size on new monitor, re-anchoring position")
+                    window.position = CGPoint(x: adjustedX, y: adjustedY)
+                }
+            }
+
             if let achievedFrame = window.frame {
                 stateStore.setSnappedFrame(achievedFrame, for: windowId)
             }
@@ -336,55 +374,67 @@ final class WindowManager {
             return
         }
 
-        // Save original frame before first snap
-        if let currentFrame = window.frame {
-            let state = stateStore.state(for: windowId)
-            if state.originalFrame == nil {
-                Logger.log("Saving original frame: \(currentFrame)")
-            }
-            stateStore.saveOriginalFrame(currentFrame, for: windowId)
+        guard let currentFrame = window.frame else {
+            Logger.error("Could not read window frame")
+            return
         }
+
+        // Save original frame before first snap
+        let state = stateStore.state(for: windowId)
+        if state.originalFrame == nil {
+            Logger.log("Saving original frame: \(currentFrame)")
+        }
+        stateStore.saveOriginalFrame(currentFrame, for: windowId)
 
         // Calculate target frame
         let targetFrame = SnapZone.calculateFrame(for: position, on: screen)
         Logger.log("Target frame: \(targetFrame)")
 
-        // Apply the frame
-        window.setFrame(targetFrame)
+        if Settings.shared.animationsEnabled {
+            WindowAnimator.shared.animate(window: window, from: currentFrame, to: targetFrame,
+                                          anchorPosition: position) { [self] achievedFrame in
+                // Store achieved frame for drift detection
+                if let achieved = achievedFrame {
+                    stateStore.setSnappedFrame(achieved, for: windowId)
+                } else if let fallback = window.frame {
+                    stateStore.setSnappedFrame(fallback, for: windowId)
+                }
+                stateStore.setSnapPosition(position, for: windowId)
+                Logger.success("Snapped to \(position)")
+            }
+        } else {
+            window.setFrame(targetFrame)
 
-        // Post-adjust: if the window couldn't shrink to target size,
-        // re-anchor it to the correct edge so it doesn't overflow off-screen
-        if let actualFrame = window.frame {
-            var adjustedX = targetFrame.origin.x
-            var adjustedY = targetFrame.origin.y
-            var needsAdjust = false
+            // Post-adjust for non-animated path: re-anchor if window couldn't shrink
+            if let actualFrame = window.frame {
+                var adjustedX = targetFrame.origin.x
+                var adjustedY = targetFrame.origin.y
+                var needsAdjust = false
 
-            if position.isRightAligned && actualFrame.width > targetFrame.width {
-                let targetRightEdge = targetFrame.origin.x + targetFrame.width
-                adjustedX = targetRightEdge - actualFrame.width
-                needsAdjust = true
+                if position.isRightAligned && actualFrame.width > targetFrame.width {
+                    let targetRightEdge = targetFrame.origin.x + targetFrame.width
+                    adjustedX = targetRightEdge - actualFrame.width
+                    needsAdjust = true
+                }
+
+                if position.isBottomAligned && actualFrame.height > targetFrame.height {
+                    let targetBottomEdge = targetFrame.origin.y + targetFrame.height
+                    adjustedY = targetBottomEdge - actualFrame.height
+                    needsAdjust = true
+                }
+
+                if needsAdjust {
+                    Logger.log("Window couldn't achieve target size, re-anchoring position")
+                    window.position = CGPoint(x: adjustedX, y: adjustedY)
+                }
             }
 
-            if position.isBottomAligned && actualFrame.height > targetFrame.height {
-                let targetBottomEdge = targetFrame.origin.y + targetFrame.height
-                adjustedY = targetBottomEdge - actualFrame.height
-                needsAdjust = true
+            if let achievedFrame = window.frame {
+                stateStore.setSnappedFrame(achievedFrame, for: windowId)
             }
-
-            if needsAdjust {
-                Logger.log("Window couldn't achieve target size, re-anchoring position")
-                window.position = CGPoint(x: adjustedX, y: adjustedY)
-            }
+            stateStore.setSnapPosition(position, for: windowId)
+            Logger.success("Snapped to \(position)")
         }
-
-        // Store achieved frame for drift detection
-        if let achievedFrame = window.frame {
-            stateStore.setSnappedFrame(achievedFrame, for: windowId)
-        }
-
-        // Update state
-        stateStore.setSnapPosition(position, for: windowId)
-        Logger.success("Snapped to \(position)")
     }
 
     private func restoreWindow(_ window: AccessibilityElement, windowId: CGWindowID) {
@@ -392,13 +442,27 @@ final class WindowManager {
 
         if let originalFrame = state.originalFrame {
             Logger.log("Restoring to original frame: \(originalFrame)")
-            window.setFrame(originalFrame)
-            Logger.success("Restored")
+
+            if Settings.shared.animationsEnabled {
+                guard let currentFrame = window.frame else {
+                    window.setFrame(originalFrame)
+                    stateStore.resetToFloating(for: windowId)
+                    Logger.success("Restored")
+                    return
+                }
+                WindowAnimator.shared.animate(window: window, from: currentFrame, to: originalFrame) { [self] _ in
+                    stateStore.resetToFloating(for: windowId)
+                    Logger.success("Restored")
+                }
+            } else {
+                window.setFrame(originalFrame)
+                stateStore.resetToFloating(for: windowId)
+                Logger.success("Restored")
+            }
         } else {
             Logger.error("No original frame to restore!")
+            stateStore.resetToFloating(for: windowId)
         }
-
-        stateStore.resetToFloating(for: windowId)
     }
 
     private func minimizeWindow(_ window: AccessibilityElement, windowId: CGWindowID) {

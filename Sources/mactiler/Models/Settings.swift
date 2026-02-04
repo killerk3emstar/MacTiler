@@ -12,6 +12,7 @@ final class Settings {
         static let showInMenuBar = "showInMenuBar"
         static let minimizeEnabled = "minimizeEnabled"
         static let restoreSizeOnUntile = "restoreSizeOnUntile"
+        static let animationsEnabled = "animationsEnabled"
     }
 
     private init() {}
@@ -45,6 +46,11 @@ final class Settings {
     var restoreSizeOnUntile: Bool {
         get { defaults.bool(forKey: Keys.restoreSizeOnUntile) }
         set { defaults.set(newValue, forKey: Keys.restoreSizeOnUntile) }
+    }
+
+    var animationsEnabled: Bool {
+        get { defaults.object(forKey: Keys.animationsEnabled) == nil ? true : defaults.bool(forKey: Keys.animationsEnabled) }
+        set { defaults.set(newValue, forKey: Keys.animationsEnabled) }
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {
