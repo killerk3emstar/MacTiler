@@ -29,15 +29,8 @@ final class AccessibilityElement {
     }
 
     var frame: CGRect? {
-        get {
-            guard let position = position, let size = size else { return nil }
-            return CGRect(origin: position, size: size)
-        }
-        set {
-            guard let newFrame = newValue else { return }
-            position = newFrame.origin
-            size = newFrame.size
-        }
+        guard let position = position, let size = size else { return nil }
+        return CGRect(origin: position, size: size)
     }
 
     var position: CGPoint? {
@@ -95,7 +88,7 @@ final class AccessibilityElement {
         return title
     }
 
-    func setFrame(_ frame: CGRect, animationDuration: TimeInterval = 0) {
+    func setFrame(_ frame: CGRect) {
         size = frame.size
         position = frame.origin
         size = frame.size

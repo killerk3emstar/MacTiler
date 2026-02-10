@@ -59,12 +59,6 @@ final class WindowStateStore {
         }
     }
 
-    func clearState(for windowId: CGWindowID) {
-        lock.lock()
-        defer { lock.unlock() }
-        states.removeValue(forKey: windowId)
-    }
-
     func setSnappedFrame(_ frame: CGRect, for windowId: CGWindowID) {
         lock.lock()
         defer { lock.unlock() }

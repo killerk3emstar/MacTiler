@@ -31,27 +31,20 @@ final class WindowManager {
         let state = stateStore.state(for: windowId)
         guard state.isSnapped,
               let snappedFrame = state.snappedFrame,
-              let currentFrame = window.frame else { return }
+              let currentFrame = window.frame,
+              hasDrifted(currentFrame, from: snappedFrame) else { return }
 
-        let tolerance: CGFloat = 5
-        let drifted = abs(currentFrame.origin.x - snappedFrame.origin.x) > tolerance
-            || abs(currentFrame.origin.y - snappedFrame.origin.y) > tolerance
-            || abs(currentFrame.width - snappedFrame.width) > tolerance
-            || abs(currentFrame.height - snappedFrame.height) > tolerance
-
-        if drifted {
-            if let originalFrame = state.originalFrame {
-                let restoredFrame = CGRect(
-                    x: currentFrame.origin.x,
-                    y: currentFrame.origin.y,
-                    width: originalFrame.width,
-                    height: originalFrame.height
-                )
-                window.setFrame(restoredFrame)
-                Logger.log("Drag detected: restored original size")
-            }
-            stateStore.resetToFloating(for: windowId)
+        if let originalFrame = state.originalFrame {
+            let restoredFrame = CGRect(
+                x: currentFrame.origin.x,
+                y: currentFrame.origin.y,
+                width: originalFrame.width,
+                height: originalFrame.height
+            )
+            window.setFrame(restoredFrame)
+            Logger.log("Drag detected: restored original size")
         }
+        stateStore.resetToFloating(for: windowId)
     }
 
     func handleDirection(_ direction: SnapDirection) {
@@ -186,16 +179,7 @@ final class WindowManager {
 
         guard let screen = screenManager.screen(for: window) else { return }
 
-        let visibleFrame = screen.visibleFrame
-        let centeredX = visibleFrame.origin.x + (visibleFrame.width - currentFrame.width) / 2
-        let centeredY = visibleFrame.origin.y + (visibleFrame.height - currentFrame.height) / 2
-
-        let centeredFrame = CGRect(
-            x: centeredX,
-            y: centeredY,
-            width: currentFrame.width,
-            height: currentFrame.height
-        )
+        let centeredFrame = centeredFrame(for: currentFrame.size, on: screen)
 
         if Settings.shared.animationsEnabled {
             WindowAnimator.shared.animate(window: window, from: currentFrame, to: centeredFrame) { [self] _ in
@@ -253,29 +237,7 @@ final class WindowManager {
             let targetFrame = SnapZone.calculateFrame(for: position, on: targetScreen)
             window.setFrame(targetFrame)
 
-            // Post-adjust: re-anchor if window couldn't shrink to target size
-            if let actualFrame = window.frame {
-                var adjustedX = targetFrame.origin.x
-                var adjustedY = targetFrame.origin.y
-                var needsAdjust = false
-
-                if position.isRightAligned && actualFrame.width > targetFrame.width {
-                    let targetRightEdge = targetFrame.origin.x + targetFrame.width
-                    adjustedX = targetRightEdge - actualFrame.width
-                    needsAdjust = true
-                }
-
-                if position.isBottomAligned && actualFrame.height > targetFrame.height {
-                    let targetBottomEdge = targetFrame.origin.y + targetFrame.height
-                    adjustedY = targetBottomEdge - actualFrame.height
-                    needsAdjust = true
-                }
-
-                if needsAdjust {
-                    Logger.log("Window couldn't achieve target size on new monitor, re-anchoring position")
-                    window.position = CGPoint(x: adjustedX, y: adjustedY)
-                }
-            }
+            applyAnchorCorrection(window: window, targetFrame: targetFrame, position: position)
 
             if let achievedFrame = window.frame {
                 stateStore.setSnappedFrame(achievedFrame, for: windowId)
@@ -283,20 +245,8 @@ final class WindowManager {
 
             // Rebase originalFrame onto target screen so restore doesn't jump back
             if let origFrame = currentState.originalFrame {
-                let targetVisible = targetScreen.visibleFrame
-                let screenHeight = NSScreen.screens.first?.frame.height ?? targetScreen.frame.height
-                let topY = screenHeight - targetVisible.origin.y - targetVisible.height
-
-                let centeredX = targetVisible.origin.x + (targetVisible.width - origFrame.width) / 2
-                let centeredY = topY + (targetVisible.height - origFrame.height) / 2
-
                 var updatedState = stateStore.state(for: windowId)
-                updatedState.originalFrame = CGRect(
-                    x: centeredX,
-                    y: centeredY,
-                    width: origFrame.width,
-                    height: origFrame.height
-                )
+                updatedState.originalFrame = centeredFrame(for: origFrame.size, on: targetScreen)
                 stateStore.updateState(updatedState)
             }
 
@@ -304,21 +254,32 @@ final class WindowManager {
         } else {
             // Floating: center on target screen
             guard let currentFrame = window.frame else { return }
-            let targetVisible = targetScreen.visibleFrame
-            let screenHeight = NSScreen.screens.first?.frame.height ?? targetScreen.frame.height
-            let topY = screenHeight - targetVisible.origin.y - targetVisible.height
-
-            let centeredX = targetVisible.origin.x + (targetVisible.width - currentFrame.width) / 2
-            let centeredY = topY + (targetVisible.height - currentFrame.height) / 2
-
-            let centeredFrame = CGRect(
-                x: centeredX,
-                y: centeredY,
-                width: currentFrame.width,
-                height: currentFrame.height
-            )
-            window.setFrame(centeredFrame)
+            window.setFrame(centeredFrame(for: currentFrame.size, on: targetScreen))
             Logger.success("Moved to adjacent monitor, centered")
+        }
+    }
+
+    /// Re-anchor window position if it couldn't shrink to target size.
+    /// For right-aligned positions, keeps right edge fixed; for bottom-aligned, keeps bottom edge fixed.
+    private func applyAnchorCorrection(window: AccessibilityElement, targetFrame: CGRect, position: SnapPosition) {
+        guard let actualFrame = window.frame else { return }
+
+        var adjustedOrigin = targetFrame.origin
+        var needsAdjust = false
+
+        if position.isRightAligned && actualFrame.width > targetFrame.width {
+            adjustedOrigin.x = targetFrame.origin.x + targetFrame.width - actualFrame.width
+            needsAdjust = true
+        }
+
+        if position.isBottomAligned && actualFrame.height > targetFrame.height {
+            adjustedOrigin.y = targetFrame.origin.y + targetFrame.height - actualFrame.height
+            needsAdjust = true
+        }
+
+        if needsAdjust {
+            Logger.log("Window couldn't achieve target size, re-anchoring position")
+            window.position = adjustedOrigin
         }
     }
 
@@ -326,30 +287,45 @@ final class WindowManager {
         let state = stateStore.state(for: windowId)
         guard state.isSnapped,
               let snappedFrame = state.snappedFrame,
-              let currentFrame = window.frame else { return }
+              let currentFrame = window.frame,
+              hasDrifted(currentFrame, from: snappedFrame) else { return }
 
-        let tolerance: CGFloat = 5
-        let drifted = abs(currentFrame.origin.x - snappedFrame.origin.x) > tolerance
-            || abs(currentFrame.origin.y - snappedFrame.origin.y) > tolerance
-            || abs(currentFrame.width - snappedFrame.width) > tolerance
-            || abs(currentFrame.height - snappedFrame.height) > tolerance
+        Logger.log("Window manually moved/resized, resetting to floating")
 
-        if drifted {
-            Logger.log("Window manually moved/resized, resetting to floating")
-
-            if Settings.shared.restoreSizeOnUntile, let originalFrame = state.originalFrame {
-                let restoredFrame = CGRect(
-                    x: currentFrame.origin.x,
-                    y: currentFrame.origin.y,
-                    width: originalFrame.width,
-                    height: originalFrame.height
-                )
-                window.setFrame(restoredFrame)
-                Logger.log("Restored original size: \(originalFrame.width)x\(originalFrame.height)")
-            }
-
-            stateStore.resetToFloating(for: windowId)
+        if Settings.shared.restoreSizeOnUntile, let originalFrame = state.originalFrame {
+            let restoredFrame = CGRect(
+                x: currentFrame.origin.x,
+                y: currentFrame.origin.y,
+                width: originalFrame.width,
+                height: originalFrame.height
+            )
+            window.setFrame(restoredFrame)
+            Logger.log("Restored original size: \(originalFrame.width)x\(originalFrame.height)")
         }
+
+        stateStore.resetToFloating(for: windowId)
+    }
+
+    /// Calculate a centered frame for a given size on a screen (in AX coordinates).
+    private func centeredFrame(for size: CGSize, on screen: NSScreen) -> CGRect {
+        let visibleFrame = screen.visibleFrame
+        let screenHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let topY = screenHeight - visibleFrame.origin.y - visibleFrame.height
+
+        return CGRect(
+            x: visibleFrame.origin.x + (visibleFrame.width - size.width) / 2,
+            y: topY + (visibleFrame.height - size.height) / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func hasDrifted(_ current: CGRect, from snapped: CGRect) -> Bool {
+        let tolerance: CGFloat = 5
+        return abs(current.origin.x - snapped.origin.x) > tolerance
+            || abs(current.origin.y - snapped.origin.y) > tolerance
+            || abs(current.width - snapped.width) > tolerance
+            || abs(current.height - snapped.height) > tolerance
     }
 
     private func executeAction(_ action: SnapAction, on window: AccessibilityElement, windowId: CGWindowID) {
@@ -404,30 +380,7 @@ final class WindowManager {
             }
         } else {
             window.setFrame(targetFrame)
-
-            // Post-adjust for non-animated path: re-anchor if window couldn't shrink
-            if let actualFrame = window.frame {
-                var adjustedX = targetFrame.origin.x
-                var adjustedY = targetFrame.origin.y
-                var needsAdjust = false
-
-                if position.isRightAligned && actualFrame.width > targetFrame.width {
-                    let targetRightEdge = targetFrame.origin.x + targetFrame.width
-                    adjustedX = targetRightEdge - actualFrame.width
-                    needsAdjust = true
-                }
-
-                if position.isBottomAligned && actualFrame.height > targetFrame.height {
-                    let targetBottomEdge = targetFrame.origin.y + targetFrame.height
-                    adjustedY = targetBottomEdge - actualFrame.height
-                    needsAdjust = true
-                }
-
-                if needsAdjust {
-                    Logger.log("Window couldn't achieve target size, re-anchoring position")
-                    window.position = CGPoint(x: adjustedX, y: adjustedY)
-                }
-            }
+            applyAnchorCorrection(window: window, targetFrame: targetFrame, position: position)
 
             if let achievedFrame = window.frame {
                 stateStore.setSnappedFrame(achievedFrame, for: windowId)

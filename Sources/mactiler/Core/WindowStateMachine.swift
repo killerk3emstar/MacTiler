@@ -44,7 +44,4 @@ final class WindowStateMachine {
         return .restore
     }
 
-    func actionForCenter(currentState: WindowState) -> SnapAction {
-        return .restore
-    }
 }

@@ -28,24 +28,6 @@ final class ScreenManager {
         screens.first?.frame.height ?? 0
     }
 
-    func convertToScreenCoordinates(_ rect: CGRect, on screen: NSScreen) -> CGRect {
-        CGRect(
-            x: rect.origin.x,
-            y: primaryScreenHeight - rect.origin.y - rect.height,
-            width: rect.width,
-            height: rect.height
-        )
-    }
-
-    func convertFromScreenCoordinates(_ rect: CGRect, on screen: NSScreen) -> CGRect {
-        CGRect(
-            x: rect.origin.x,
-            y: primaryScreenHeight - rect.origin.y - rect.height,
-            width: rect.width,
-            height: rect.height
-        )
-    }
-
     /// Find the adjacent screen in the given direction based on screen geometry.
     /// Uses Cocoa coordinates (Y=0 at bottom).
     func adjacentScreen(to currentScreen: NSScreen, direction: SnapDirection) -> NSScreen? {
