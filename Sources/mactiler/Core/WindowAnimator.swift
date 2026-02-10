@@ -11,63 +11,71 @@ final class WindowAnimator {
     private init() {}
 
     /// Animate a window to a target frame using "Resize at Start, Slide Into Place":
-    /// set target size once with 1px nudge trick, then animate position only.
-    ///
-    /// - Parameters:
-    ///   - window: The window to animate.
-    ///   - start: The window's current frame (caller already has it).
-    ///   - target: The desired target frame.
-    ///   - anchorPosition: Snap position for anchor correction (right/bottom aligned).
-    ///   - duration: Animation duration (default 0.15s).
-    ///   - completion: Called with the final achieved frame (anchor-corrected) or nil on failure.
+    /// set target size once with nudge trick, then animate position only.
     func animate(window: AccessibilityElement, from start: CGRect, to target: CGRect,
                  anchorPosition: SnapPosition? = nil, duration: TimeInterval = 0.15,
                  completion: ((_ achievedFrame: CGRect?) -> Void)? = nil) {
         finalizePendingAnimation()
 
-        // Double-resize trick with 1px nudge: triggers app re-layout without
-        // jumping to target position (which would cause visible flash)
+        // Phase 1: First resize attempt at start position (may be clamped by screen edge)
         window.size = target.size
-        window.position = CGPoint(x: start.origin.x, y: start.origin.y + 1)
-        window.size = target.size
-        window.position = start.origin
+        let firstAchieved = window.size ?? target.size
+        let isClamped = (target.size.width - firstAchieved.width) > 5
+            || (target.size.height - firstAchieved.height) > 5
 
-        guard var achievedSize = window.size else {
+        // Phase 2: Nudge + second resize
+        // The nudge position depends on the situation:
+        // - Clamped (e.g. maximize from offset): nudge toward target.x so full width fits
+        // - Right/bottom aligned (e.g. rightHalf→rightStrip): preserve trailing edge
+        // - Normal: stay at start (1px Y nudge only)
+        var nudgePos: CGPoint
+        if isClamped {
+            nudgePos = CGPoint(x: min(start.origin.x, target.origin.x),
+                               y: min(start.origin.y, target.origin.y))
+        } else if let anchor = anchorPosition, (anchor.isRightAligned || anchor.isBottomAligned) {
+            var x = start.origin.x, y = start.origin.y
+            if anchor.isRightAligned { x = start.origin.x + start.width - firstAchieved.width }
+            if anchor.isBottomAligned { y = start.origin.y + start.height - firstAchieved.height }
+            nudgePos = CGPoint(x: x, y: y)
+        } else {
+            nudgePos = start.origin
+        }
+
+        window.position = CGPoint(x: nudgePos.x, y: nudgePos.y + 1)
+        window.size = target.size
+
+        guard let achievedSize = window.size else {
             window.setFrame(target)
             completion?(window.frame)
             return
         }
 
-        // If resize was severely clamped (>50px off), the window can't achieve
-        // target size at start position. Fall back to setFrame at target position.
-        // This causes a brief flash but is necessary for maximize/strip→corner.
-        let widthShort = target.size.width - achievedSize.width
-        let heightShort = target.size.height - achievedSize.height
-        if widthShort > 50 || heightShort > 50 {
-            window.setFrame(target)
-            if let retrySize = window.size {
-                achievedSize = retrySize
+        // Phase 3: Compute animation start (trailing-edge-preserved for right/bottom)
+        var animStart = start.origin
+        if let anchor = anchorPosition {
+            if anchor.isRightAligned {
+                animStart.x = start.origin.x + start.width - achievedSize.width
             }
-            window.position = start.origin
+            if anchor.isBottomAligned {
+                animStart.y = start.origin.y + start.height - achievedSize.height
+            }
         }
+        window.position = animStart
 
-        // Compute anchor-corrected final origin
+        // Compute anchor-corrected final origin (for min-width windows)
         var finalOrigin = target.origin
         if let anchor = anchorPosition {
             if anchor.isRightAligned && achievedSize.width > target.width {
-                let targetRightEdge = target.origin.x + target.width
-                finalOrigin.x = targetRightEdge - achievedSize.width
+                finalOrigin.x = target.origin.x + target.width - achievedSize.width
             }
             if anchor.isBottomAligned && achievedSize.height > target.height {
-                let targetBottomEdge = target.origin.y + target.height
-                finalOrigin.y = targetBottomEdge - achievedSize.height
+                finalOrigin.y = target.origin.y + target.height - achievedSize.height
             }
         }
 
-        let correctedTarget = CGRect(origin: finalOrigin, size: achievedSize)
-
+        // Phase 4: Position-only animation
         pendingWindow = window
-        pendingOriginalTarget = correctedTarget
+        pendingOriginalTarget = CGRect(origin: target.origin, size: target.size)
         pendingCompletion = completion
 
         let totalSteps = 8
@@ -79,8 +87,8 @@ final class WindowAnimator {
             let t = Double(step) / Double(totalSteps)
             let e = 1 - pow(1 - t, 3) // ease-out cubic
 
-            let x = start.origin.x + (finalOrigin.x - start.origin.x) * e
-            let y = start.origin.y + (finalOrigin.y - start.origin.y) * e
+            let x = animStart.x + (finalOrigin.x - animStart.x) * e
+            let y = animStart.y + (finalOrigin.y - animStart.y) * e
             window.position = CGPoint(x: x, y: y)
 
             if step >= totalSteps {
@@ -96,13 +104,11 @@ final class WindowAnimator {
     }
 
     /// Immediately finish the in-progress animation: jump to target and run completion.
-    /// Call this before starting a new action so the state is up-to-date.
     func finalizePendingAnimation() {
         guard animationTimer != nil else { return }
         animationTimer?.invalidate()
         animationTimer = nil
 
-        // Jump to final state: set frame to original target, let setFrame handle sizing
         if let window = pendingWindow, let target = pendingOriginalTarget {
             window.setFrame(target)
         }
