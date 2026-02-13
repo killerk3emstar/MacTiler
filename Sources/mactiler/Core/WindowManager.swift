@@ -7,7 +7,6 @@ final class WindowManager {
     private let stateStore = WindowStateStore.shared
     private let screenManager = ScreenManager.shared
 
-    private var lastMinimizedWindow: (element: AccessibilityElement, windowId: CGWindowID)?
     private var dragMonitor: Any?
 
     private init() {}
@@ -56,26 +55,13 @@ final class WindowManager {
             return
         }
 
-        // Arrow up: unminimize a minimized window
+        // Arrow up: unminimize a minimized window of the frontmost app
         if direction == .up, Settings.shared.minimizeEnabled {
-            // Check if the frontmost app has a minimized window
             if let minimizedWindow = AccessibilityElement.frontmostMinimizedWindow {
                 let title = minimizedWindow.title ?? "Unknown"
                 Logger.log("Unminimizing window: \"\(title)\"")
                 minimizedWindow.unminimize()
                 minimizedWindow.bringToFront()
-                lastMinimizedWindow = nil
-                Logger.success("Unminimized to floating")
-                return
-            }
-
-            // Fallback: unminimize window we minimized via MacTiler
-            // (frontmost app may have changed since minimize)
-            if let minimized = lastMinimizedWindow {
-                Logger.log("Unminimizing previously minimized window (id: \(minimized.windowId))")
-                minimized.element.unminimize()
-                minimized.element.bringToFront()
-                lastMinimizedWindow = nil
                 Logger.success("Unminimized to floating")
                 return
             }
@@ -424,7 +410,6 @@ final class WindowManager {
             return
         }
         Logger.log("Minimizing window")
-        lastMinimizedWindow = (element: window, windowId: windowId)
         window.minimize()
         stateStore.resetToFloating(for: windowId)
         Logger.success("Minimized")
