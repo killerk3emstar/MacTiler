@@ -2,97 +2,109 @@ import SwiftUI
 import KeyboardShortcuts
 
 struct PreferencesView: View {
+    @State private var selectedTab = 0
+
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
+        VStack(spacing: 0) {
+            // Tab picker in the style of native macOS preferences
+            Picker("", selection: $selectedTab) {
+                Text("General").tag(0)
+                Text("Shortcuts").tag(1)
+                Text("About").tag(2)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 60)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
-            ShortcutsSettingsView()
-                .tabItem {
-                    Label("Shortcuts", systemImage: "keyboard")
-                }
+            Divider()
 
-            AboutView()
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
+            // Tab content
+            Group {
+                switch selectedTab {
+                case 0: GeneralSettingsView()
+                case 1: ShortcutsSettingsView()
+                case 2: AboutView()
+                default: EmptyView()
                 }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 450, height: 420)
+        .frame(minWidth: 460, minHeight: 380)
     }
 }
 
 struct GeneralSettingsView: View {
-    @State private var launchAtLogin: Bool = Settings.shared.launchAtLogin
-    @State private var windowGap: Double = Double(Settings.shared.windowGap)
-    @State private var minimizeEnabled: Bool = Settings.shared.minimizeEnabled
-    @State private var restoreSizeOnUntile: Bool = Settings.shared.restoreSizeOnUntile
-    @State private var animationsEnabled: Bool = Settings.shared.animationsEnabled
+    @State private var launchAtLogin = Settings.shared.launchAtLogin
+    @State private var windowGap = Double(Settings.shared.windowGap)
+    @State private var minimizeEnabled = Settings.shared.minimizeEnabled
+    @State private var restoreSizeOnUntile = Settings.shared.restoreSizeOnUntile
+    @State private var animationsEnabled = Settings.shared.animationsEnabled
 
     var body: some View {
         Form {
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { newValue in
-                    Settings.shared.launchAtLogin = newValue
-                }
-
-            Toggle("Enable minimize/unminimize", isOn: $minimizeEnabled)
-                .onChange(of: minimizeEnabled) { newValue in
-                    Settings.shared.minimizeEnabled = newValue
-                }
-
-            Toggle("Restore original size when untiled", isOn: $restoreSizeOnUntile)
-                .onChange(of: restoreSizeOnUntile) { newValue in
-                    Settings.shared.restoreSizeOnUntile = newValue
-                }
-
-            Toggle("Enable animations", isOn: $animationsEnabled)
-                .onChange(of: animationsEnabled) { newValue in
-                    Settings.shared.animationsEnabled = newValue
-                }
-
-            HStack {
-                Text("Window gap:")
-                Slider(value: $windowGap, in: 0...20, step: 1)
-                    .frame(width: 150)
-                Text("\(Int(windowGap)) px")
-                    .frame(width: 40)
+            Section {
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { Settings.shared.launchAtLogin = $0 }
             }
-            .onChange(of: windowGap) { newValue in
-                Settings.shared.windowGap = CGFloat(newValue)
+
+            Section("Behavior") {
+                Toggle("Enable minimize/unminimize", isOn: $minimizeEnabled)
+                    .onChange(of: minimizeEnabled) { Settings.shared.minimizeEnabled = $0 }
+
+                Toggle("Restore original size when untiled", isOn: $restoreSizeOnUntile)
+                    .onChange(of: restoreSizeOnUntile) { Settings.shared.restoreSizeOnUntile = $0 }
+
+                Toggle("Animate window transitions", isOn: $animationsEnabled)
+                    .onChange(of: animationsEnabled) { Settings.shared.animationsEnabled = $0 }
+            }
+
+            Section("Window Gap") {
+                HStack {
+                    Slider(value: $windowGap, in: 0...20, step: 1)
+                        .onChange(of: windowGap) { Settings.shared.windowGap = CGFloat($0) }
+                    Text("\(Int(windowGap)) px")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(width: 36, alignment: .trailing)
+                }
             }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
 struct ShortcutsSettingsView: View {
     var body: some View {
         Form {
-            shortcutRow("Snap Left", name: .snapLeft)
-            shortcutRow("Snap Right", name: .snapRight)
-            shortcutRow("Snap Up", name: .snapUp)
-            shortcutRow("Snap Down", name: .snapDown)
-            Divider()
-            shortcutRow("Maximize", name: .maximize)
-            shortcutRow("Restore", name: .restore)
-            shortcutRow("Center", name: .center)
-            Divider()
-            shortcutRow("Move to Left Monitor", name: .moveMonitorLeft)
-            shortcutRow("Move to Right Monitor", name: .moveMonitorRight)
-            shortcutRow("Move to Upper Monitor", name: .moveMonitorUp)
-            shortcutRow("Move to Lower Monitor", name: .moveMonitorDown)
+            Section("Tiling") {
+                shortcutRow("Snap Left", name: .snapLeft)
+                shortcutRow("Snap Right", name: .snapRight)
+                shortcutRow("Snap Up", name: .snapUp)
+                shortcutRow("Snap Down", name: .snapDown)
+            }
+
+            Section("Window") {
+                shortcutRow("Maximize", name: .maximize)
+                shortcutRow("Restore", name: .restore)
+                shortcutRow("Center", name: .center)
+            }
+
+            Section("Monitor") {
+                shortcutRow("Move Left", name: .moveMonitorLeft)
+                shortcutRow("Move Right", name: .moveMonitorRight)
+                shortcutRow("Move Up", name: .moveMonitorUp)
+                shortcutRow("Move Down", name: .moveMonitorDown)
+            }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 
     private func shortcutRow(_ title: String, name: KeyboardShortcuts.Name) -> some View {
-        HStack {
-            Text(title)
-                .frame(width: 160, alignment: .leading)
+        LabeledContent(title) {
             KeyboardShortcuts.Recorder(for: name)
         }
     }
@@ -100,31 +112,33 @@ struct ShortcutsSettingsView: View {
 
 struct AboutView: View {
     private let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    private let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "rectangle.split.2x2")
-                .font(.system(size: 64))
-                .foregroundColor(.accentColor)
-
-            Text("MacTiler")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Version \(version)")
-                .foregroundColor(.secondary)
-
-            Text("Windows 11-style window tiling for macOS")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-
+        VStack(spacing: 12) {
             Spacer()
 
-            Link("GitHub", destination: URL(string: "https://github.com")!)
-                .font(.subheadline)
+            Image(systemName: "rectangle.split.2x2")
+                .font(.system(size: 56, weight: .thin))
+                .foregroundStyle(.primary)
+
+            Text("MacTiler")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text("Version \(version) (\(build))")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            Text("Window tiling for macOS,\ninspired by Windows 11 Snap Assist")
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+
+            Spacer()
+            Spacer()
         }
-        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

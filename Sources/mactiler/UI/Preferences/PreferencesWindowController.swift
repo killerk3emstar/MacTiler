@@ -20,7 +20,8 @@ final class PreferencesWindowController {
 
         let window = NSWindow(contentViewController: hostingController)
         window.title = "MacTiler Preferences"
-        window.styleMask = [.titled, .closable]
+        window.styleMask = [.titled, .closable, .resizable]
+        window.contentMinSize = NSSize(width: 460, height: 380)
         window.center()
         window.setFrameAutosaveName("PreferencesWindow")
         window.isReleasedWhenClosed = false
