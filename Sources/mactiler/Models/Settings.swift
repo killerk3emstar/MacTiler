@@ -9,7 +9,6 @@ final class Settings {
     private enum Keys {
         static let windowGap = "windowGap"
         static let launchAtLogin = "launchAtLogin"
-        static let showInMenuBar = "showInMenuBar"
         static let minimizeEnabled = "minimizeEnabled"
         static let restoreSizeOnUntile = "restoreSizeOnUntile"
         static let animationsEnabled = "animationsEnabled"
@@ -19,10 +18,7 @@ final class Settings {
 
     var windowGap: CGFloat {
         get { CGFloat(defaults.double(forKey: Keys.windowGap)) }
-        set {
-            defaults.set(Double(newValue), forKey: Keys.windowGap)
-            NotificationCenter.default.post(name: .settingsChanged, object: nil)
-        }
+        set { defaults.set(Double(newValue), forKey: Keys.windowGap) }
     }
 
     var launchAtLogin: Bool {
@@ -31,11 +27,6 @@ final class Settings {
             defaults.set(newValue, forKey: Keys.launchAtLogin)
             updateLaunchAtLogin(newValue)
         }
-    }
-
-    var showInMenuBar: Bool {
-        get { defaults.object(forKey: Keys.showInMenuBar) == nil ? true : defaults.bool(forKey: Keys.showInMenuBar) }
-        set { defaults.set(newValue, forKey: Keys.showInMenuBar) }
     }
 
     var minimizeEnabled: Bool {
@@ -66,6 +57,3 @@ final class Settings {
     }
 }
 
-extension Notification.Name {
-    static let settingsChanged = Notification.Name("settingsChanged")
-}

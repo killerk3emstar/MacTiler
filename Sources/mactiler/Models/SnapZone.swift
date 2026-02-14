@@ -1,10 +1,7 @@
 import AppKit
 import CoreGraphics
 
-struct SnapZone {
-    let position: SnapPosition
-    let frame: CGRect
-
+enum SnapZone {
     /// Calculate window frame for a snap position
     /// Important: NSScreen uses Cocoa coordinates (Y=0 at bottom)
     /// but AXUIElement uses screen coordinates (Y=0 at top)

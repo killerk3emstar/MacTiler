@@ -19,6 +19,7 @@ final class AccessibilityElement {
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
 
         guard result == .success, let windowElement = focusedWindow else { return nil }
+        // AXUIElementCopyAttributeValue always returns AXUIElement for kAXFocusedWindowAttribute
         return AccessibilityElement(windowElement as! AXUIElement)
     }
 

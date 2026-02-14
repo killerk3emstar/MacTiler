@@ -101,77 +101,36 @@ final class WindowManager {
     }
 
     func maximize() {
-        guard AccessibilityPermissions.isGranted else {
-            AccessibilityPermissions.requestPermissions()
-            return
+        withPreparedWindow { window, windowId in
+            let currentState = stateStore.state(for: windowId)
+            let action = stateMachine.actionForMaximize(currentState: currentState)
+            executeAction(action, on: window, windowId: windowId)
         }
-
-        guard let window = AccessibilityElement.focusedWindow,
-              let windowId = window.windowId,
-              !window.isFullScreen,
-              !window.isMinimized else {
-            return
-        }
-
-        WindowAnimator.shared.finalizePendingAnimation()
-        validateWindowState(window: window, windowId: windowId)
-
-        let currentState = stateStore.state(for: windowId)
-        let action = stateMachine.actionForMaximize(currentState: currentState)
-
-        executeAction(action, on: window, windowId: windowId)
     }
 
     func restore() {
-        guard AccessibilityPermissions.isGranted else {
-            AccessibilityPermissions.requestPermissions()
-            return
+        withPreparedWindow { window, windowId in
+            let currentState = stateStore.state(for: windowId)
+            let action = stateMachine.actionForRestore(currentState: currentState)
+            executeAction(action, on: window, windowId: windowId)
         }
-
-        guard let window = AccessibilityElement.focusedWindow,
-              let windowId = window.windowId,
-              !window.isFullScreen,
-              !window.isMinimized else {
-            return
-        }
-
-        WindowAnimator.shared.finalizePendingAnimation()
-        validateWindowState(window: window, windowId: windowId)
-
-        let currentState = stateStore.state(for: windowId)
-        let action = stateMachine.actionForRestore(currentState: currentState)
-
-        executeAction(action, on: window, windowId: windowId)
     }
 
     func center() {
-        guard AccessibilityPermissions.isGranted else {
-            AccessibilityPermissions.requestPermissions()
-            return
-        }
+        withPreparedWindow { window, windowId in
+            guard let currentFrame = window.frame,
+                  let screen = screenManager.screen(for: window) else { return }
 
-        guard let window = AccessibilityElement.focusedWindow,
-              let windowId = window.windowId,
-              !window.isFullScreen,
-              !window.isMinimized,
-              let currentFrame = window.frame else {
-            return
-        }
+            let centeredFrame = centeredFrame(for: currentFrame.size, on: screen)
 
-        WindowAnimator.shared.finalizePendingAnimation()
-        validateWindowState(window: window, windowId: windowId)
-
-        guard let screen = screenManager.screen(for: window) else { return }
-
-        let centeredFrame = centeredFrame(for: currentFrame.size, on: screen)
-
-        if Settings.shared.animationsEnabled {
-            WindowAnimator.shared.animate(window: window, from: currentFrame, to: centeredFrame) { [self] _ in
+            if Settings.shared.animationsEnabled {
+                WindowAnimator.shared.animate(window: window, from: currentFrame, to: centeredFrame) { [self] _ in
+                    stateStore.resetToFloating(for: windowId)
+                }
+            } else {
+                window.setFrame(centeredFrame)
                 stateStore.resetToFloating(for: windowId)
             }
-        } else {
-            window.setFrame(centeredFrame)
-            stateStore.resetToFloating(for: windowId)
         }
     }
 
@@ -265,6 +224,23 @@ final class WindowManager {
             Logger.log("Window couldn't achieve target size, re-anchoring position")
             window.position = adjustedOrigin
         }
+    }
+
+    /// Common setup for actions on the focused window: permission check, guards, finalize animation, validate state.
+    private func withPreparedWindow(_ action: (AccessibilityElement, CGWindowID) -> Void) {
+        guard AccessibilityPermissions.isGranted else {
+            AccessibilityPermissions.requestPermissions()
+            return
+        }
+
+        guard let window = AccessibilityElement.focusedWindow,
+              let windowId = window.windowId,
+              !window.isFullScreen,
+              !window.isMinimized else { return }
+
+        WindowAnimator.shared.finalizePendingAnimation()
+        validateWindowState(window: window, windowId: windowId)
+        action(window, windowId)
     }
 
     private func validateWindowState(window: AccessibilityElement, windowId: CGWindowID) {

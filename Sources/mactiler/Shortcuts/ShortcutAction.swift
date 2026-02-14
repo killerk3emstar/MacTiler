@@ -43,22 +43,6 @@ enum ShortcutAction: String, CaseIterable {
         }
     }
 
-    var displayName: String {
-        switch self {
-        case .snapUp: return "Snap Up"
-        case .snapDown: return "Snap Down"
-        case .snapLeft: return "Snap Left"
-        case .snapRight: return "Snap Right"
-        case .maximize: return "Maximize"
-        case .restore: return "Restore"
-        case .center: return "Center"
-        case .moveMonitorLeft: return "Move to Left Monitor"
-        case .moveMonitorRight: return "Move to Right Monitor"
-        case .moveMonitorUp: return "Move to Upper Monitor"
-        case .moveMonitorDown: return "Move to Lower Monitor"
-        }
-    }
-
     var defaultShortcut: KeyboardShortcuts.Shortcut? {
         switch self {
         case .snapUp:

@@ -1,7 +1,7 @@
 import Foundation
 
 enum Logger {
-    static func log(_ message: String, file: String = #file, function: String = #function) {
+    static func log(_ message: String, file: String = #file) {
         let filename = (file as NSString).lastPathComponent.replacingOccurrences(of: ".swift", with: "")
         print("[\(filename)] \(message)")
     }

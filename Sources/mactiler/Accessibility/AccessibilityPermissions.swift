@@ -16,32 +16,4 @@ enum AccessibilityPermissions {
         NSWorkspace.shared.open(url)
     }
 
-    static func checkAndRequestIfNeeded(completion: @escaping (Bool) -> Void) {
-        if isGranted {
-            completion(true)
-            return
-        }
-
-        requestPermissions()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            pollForPermission(attempts: 30, completion: completion)
-        }
-    }
-
-    private static func pollForPermission(attempts: Int, completion: @escaping (Bool) -> Void) {
-        guard attempts > 0 else {
-            completion(false)
-            return
-        }
-
-        if isGranted {
-            completion(true)
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            pollForPermission(attempts: attempts - 1, completion: completion)
-        }
-    }
 }
