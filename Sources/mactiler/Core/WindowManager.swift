@@ -55,20 +55,18 @@ final class WindowManager {
             return
         }
 
-        // Arrow up: unminimize a minimized window of the frontmost app
-        if direction == .up, Settings.shared.minimizeEnabled {
-            if let minimizedWindow = AccessibilityElement.frontmostMinimizedWindow {
+        guard let window = AccessibilityElement.focusedWindow else {
+            // No focused window — try to unminimize the most recently minimized one
+            if direction == .up, Settings.shared.minimizeEnabled,
+               let minimizedWindow = AccessibilityElement.lastMinimizedWindowOfFrontmostApp {
                 let title = minimizedWindow.title ?? "Unknown"
-                Logger.log("Unminimizing window: \"\(title)\"")
+                Logger.log("No focused window, unminimizing: \"\(title)\"")
                 minimizedWindow.unminimize()
                 minimizedWindow.bringToFront()
                 Logger.success("Unminimized to floating")
-                return
+            } else {
+                Logger.error("No focused window")
             }
-        }
-
-        guard let window = AccessibilityElement.focusedWindow else {
-            Logger.error("No focused window")
             return
         }
 

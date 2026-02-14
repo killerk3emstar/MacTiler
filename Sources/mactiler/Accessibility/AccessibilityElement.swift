@@ -106,21 +106,45 @@ final class AccessibilityElement {
         AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, false as CFBoolean)
     }
 
-    /// Returns the first minimized window of the frontmost application, if any.
-    static var frontmostMinimizedWindow: AccessibilityElement? {
+    /// Returns the most recently minimized window of the frontmost application,
+    /// using CGWindowList ordering (front-to-back in the window server).
+    static var lastMinimizedWindowOfFrontmostApp: AccessibilityElement? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let pid = app.processIdentifier
 
+        // Get AX windows for this app
+        let appElement = AXUIElementCreateApplication(pid)
         var windowsRef: AnyObject?
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
         guard result == .success, let windows = windowsRef as? [AXUIElement] else { return nil }
 
+        // Build a map of windowId → AX element for minimized windows only
+        var minimizedById: [CGWindowID: AccessibilityElement] = [:]
         for window in windows {
             let element = AccessibilityElement(window)
-            if element.isMinimized {
-                return element
+            if element.isMinimized, let wid = element.windowId {
+                minimizedById[wid] = element
             }
         }
-        return nil
+
+        guard !minimizedById.isEmpty else { return nil }
+
+        // Use CGWindowList to determine ordering (front-to-back)
+        guard let cgList = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            // Fallback: return any minimized window
+            return minimizedById.values.first
+        }
+
+        // Find the first minimized window of this app in CG order (most recently on top)
+        for info in cgList {
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID == pid,
+                  let windowNumber = info[kCGWindowNumber as String] as? CGWindowID,
+                  let element = minimizedById[windowNumber] else { continue }
+            return element
+        }
+
+        // Fallback: return any minimized window
+        return minimizedById.values.first
     }
 }
