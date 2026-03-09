@@ -18,7 +18,7 @@ final class WindowManager {
     }
 
     private func checkForDragDrift() {
-        WindowAnimator.shared.cancel()
+        WindowAnimator.shared.finalizePendingAnimation()
 
         guard Settings.shared.restoreSizeOnUntile else { return }
 

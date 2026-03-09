@@ -5,6 +5,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let windowManager = WindowManager.shared
     private var accessibilityMenuItem: NSMenuItem?
+    private var shortcutMenuItems: [(NSMenuItem, KeyboardShortcuts.Name)] = []
 
     func setup() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -67,6 +68,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         // Update accessibility status each time menu opens
         accessibilityMenuItem?.title = accessibilityStatusText
+
+        // Refresh shortcut key equivalents (may have changed in preferences)
+        for (item, name) in shortcutMenuItems {
+            if let shortcut = KeyboardShortcuts.getShortcut(for: name) {
+                item.keyEquivalentModifierMask = shortcut.modifiers
+                if let key = shortcut.key {
+                    item.keyEquivalent = keyEquivalentString(for: key)
+                } else {
+                    item.keyEquivalent = ""
+                }
+            } else {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+        }
     }
 
     private func createMenuItem(title: String, action: Selector, shortcut: KeyboardShortcuts.Name) -> NSMenuItem {
@@ -80,6 +96,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             }
         }
 
+        shortcutMenuItems.append((item, shortcut))
         return item
     }
 
@@ -91,12 +108,58 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         case .rightArrow: return String(UnicodeScalar(NSRightArrowFunctionKey)!)
         case .return: return "\r"
         case .delete: return String(UnicodeScalar(NSDeleteCharacter)!)
+        case .space: return " "
+        case .tab: return "\t"
+        case .escape: return String(UnicodeScalar(0x1B))
+        case .a: return "a"
+        case .b: return "b"
         case .c: return "c"
-        default:
-            if let scalar = UnicodeScalar(key.rawValue) {
-                return String(scalar)
-            }
-            return ""
+        case .d: return "d"
+        case .e: return "e"
+        case .f: return "f"
+        case .g: return "g"
+        case .h: return "h"
+        case .i: return "i"
+        case .j: return "j"
+        case .k: return "k"
+        case .l: return "l"
+        case .m: return "m"
+        case .n: return "n"
+        case .o: return "o"
+        case .p: return "p"
+        case .q: return "q"
+        case .r: return "r"
+        case .s: return "s"
+        case .t: return "t"
+        case .u: return "u"
+        case .v: return "v"
+        case .w: return "w"
+        case .x: return "x"
+        case .y: return "y"
+        case .z: return "z"
+        case .zero: return "0"
+        case .one: return "1"
+        case .two: return "2"
+        case .three: return "3"
+        case .four: return "4"
+        case .five: return "5"
+        case .six: return "6"
+        case .seven: return "7"
+        case .eight: return "8"
+        case .nine: return "9"
+        case .f1: return String(UnicodeScalar(NSF1FunctionKey)!)
+        case .f2: return String(UnicodeScalar(NSF2FunctionKey)!)
+        case .f3: return String(UnicodeScalar(NSF3FunctionKey)!)
+        case .f4: return String(UnicodeScalar(NSF4FunctionKey)!)
+        case .f5: return String(UnicodeScalar(NSF5FunctionKey)!)
+        case .f6: return String(UnicodeScalar(NSF6FunctionKey)!)
+        case .f7: return String(UnicodeScalar(NSF7FunctionKey)!)
+        case .f8: return String(UnicodeScalar(NSF8FunctionKey)!)
+        case .f9: return String(UnicodeScalar(NSF9FunctionKey)!)
+        case .f10: return String(UnicodeScalar(NSF10FunctionKey)!)
+        case .f11: return String(UnicodeScalar(NSF11FunctionKey)!)
+        case .f12: return String(UnicodeScalar(NSF12FunctionKey)!)
+        default: return ""
         }
     }
 

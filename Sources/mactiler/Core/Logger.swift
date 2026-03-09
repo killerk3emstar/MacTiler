@@ -1,20 +1,23 @@
 import Foundation
+import os
 
 enum Logger {
+    private static let logger = os.Logger(subsystem: "com.mactiler.app", category: "general")
+
     static func log(_ message: String, file: String = #file) {
         let filename = (file as NSString).lastPathComponent.replacingOccurrences(of: ".swift", with: "")
-        print("[\(filename)] \(message)")
+        logger.info("[\(filename, privacy: .public)] \(message, privacy: .public)")
     }
 
     static func action(_ action: String) {
-        print("→ \(action)")
+        logger.info("→ \(action, privacy: .public)")
     }
 
     static func error(_ message: String) {
-        print("✗ ERROR: \(message)")
+        logger.error("✗ ERROR: \(message, privacy: .public)")
     }
 
     static func success(_ message: String) {
-        print("✓ \(message)")
+        logger.info("✓ \(message, privacy: .public)")
     }
 }

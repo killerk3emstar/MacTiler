@@ -9,11 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         checkAccessibilityPermissions()
 
+        shortcutManager.setupShortcuts()
+
         statusBarController = StatusBarController()
         statusBarController?.setup()
         Logger.log("Status bar ready")
-
-        shortcutManager.setupShortcuts()
 
         WindowManager.shared.setupDragDetection()
 

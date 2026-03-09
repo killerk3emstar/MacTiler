@@ -11,7 +11,7 @@ final class PreferencesWindowController {
     func showPreferences() {
         if let window = window {
             window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             return
         }
 
@@ -29,7 +29,7 @@ final class PreferencesWindowController {
         self.window = window
 
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 
     func closePreferences() {

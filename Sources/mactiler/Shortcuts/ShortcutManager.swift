@@ -9,17 +9,26 @@ final class ShortcutManager {
     private init() {}
 
     func setupShortcuts() {
-        registerDefaultShortcuts()
+        ensureShortcutsRegistered()
         setupHandlers()
     }
 
-    private func registerDefaultShortcuts() {
+    /// At startup: only set shortcuts that are missing or differ from Settings.
+    private func ensureShortcutsRegistered() {
         for action in ShortcutAction.allCases {
-            if KeyboardShortcuts.getShortcut(for: action.keyboardShortcutName) == nil {
-                if let defaultShortcut = action.defaultShortcut {
-                    KeyboardShortcuts.setShortcut(defaultShortcut, for: action.keyboardShortcutName)
-                }
+            let desired = action.resolvedShortcut()
+            let current = KeyboardShortcuts.getShortcut(for: action.keyboardShortcutName)
+            if current != desired {
+                KeyboardShortcuts.setShortcut(desired, for: action.keyboardShortcutName)
             }
+        }
+    }
+
+    /// Called from preferences when modifier/key settings change — force-updates all shortcuts.
+    func rebuildAllShortcuts() {
+        for action in ShortcutAction.allCases {
+            let shortcut = action.resolvedShortcut()
+            KeyboardShortcuts.setShortcut(shortcut, for: action.keyboardShortcutName)
         }
     }
 

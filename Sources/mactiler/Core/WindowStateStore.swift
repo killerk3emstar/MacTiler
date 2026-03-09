@@ -66,6 +66,10 @@ final class WindowStateStore {
         if var state = states[windowId] {
             state.snappedFrame = frame
             states[windowId] = state
+        } else {
+            var newState = WindowState(windowId: windowId)
+            newState.snappedFrame = frame
+            states[windowId] = newState
         }
     }
 
@@ -91,7 +95,7 @@ final class WindowStateStore {
         lock.lock()
         defer { lock.unlock() }
 
-        let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
         let activeWindowIds = Set(windowList.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
 
         states = states.filter { activeWindowIds.contains($0.key) }

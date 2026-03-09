@@ -1,3 +1,4 @@
+import AppKit
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
@@ -12,6 +13,11 @@ extension KeyboardShortcuts.Name {
     static let moveMonitorRight = Self("moveMonitorRight")
     static let moveMonitorUp = Self("moveMonitorUp")
     static let moveMonitorDown = Self("moveMonitorDown")
+}
+
+enum ShortcutGroup {
+    case tiling
+    case monitor
 }
 
 enum ShortcutAction: String, CaseIterable {
@@ -43,30 +49,47 @@ enum ShortcutAction: String, CaseIterable {
         }
     }
 
-    var defaultShortcut: KeyboardShortcuts.Shortcut? {
+    var group: ShortcutGroup {
         switch self {
-        case .snapUp:
-            return KeyboardShortcuts.Shortcut(.upArrow, modifiers: [.command, .option])
-        case .snapDown:
-            return KeyboardShortcuts.Shortcut(.downArrow, modifiers: [.command, .option])
-        case .snapLeft:
-            return KeyboardShortcuts.Shortcut(.leftArrow, modifiers: [.command, .option])
-        case .snapRight:
-            return KeyboardShortcuts.Shortcut(.rightArrow, modifiers: [.command, .option])
-        case .maximize:
-            return KeyboardShortcuts.Shortcut(.return, modifiers: [.command, .option])
-        case .restore:
-            return KeyboardShortcuts.Shortcut(.delete, modifiers: [.command, .option])
-        case .center:
-            return KeyboardShortcuts.Shortcut(.c, modifiers: [.command, .option])
-        case .moveMonitorLeft:
-            return KeyboardShortcuts.Shortcut(.leftArrow, modifiers: [.control, .command, .option])
-        case .moveMonitorRight:
-            return KeyboardShortcuts.Shortcut(.rightArrow, modifiers: [.control, .command, .option])
-        case .moveMonitorUp:
-            return KeyboardShortcuts.Shortcut(.upArrow, modifiers: [.control, .command, .option])
-        case .moveMonitorDown:
-            return KeyboardShortcuts.Shortcut(.downArrow, modifiers: [.control, .command, .option])
+        case .snapUp, .snapDown, .snapLeft, .snapRight,
+             .maximize, .restore, .center:
+            return .tiling
+        case .moveMonitorLeft, .moveMonitorRight,
+             .moveMonitorUp, .moveMonitorDown:
+            return .monitor
         }
+    }
+
+    /// Fixed key for this action (arrow-based shortcuts), nil for configurable keys.
+    var fixedKey: KeyboardShortcuts.Key? {
+        switch self {
+        case .snapUp, .moveMonitorUp: return .upArrow
+        case .snapDown, .moveMonitorDown: return .downArrow
+        case .snapLeft, .moveMonitorLeft: return .leftArrow
+        case .snapRight, .moveMonitorRight: return .rightArrow
+        case .maximize, .restore, .center: return nil
+        }
+    }
+
+    /// Resolve the key for this action from Settings (for configurable keys).
+    func resolvedKey(from settings: Settings = .shared) -> KeyboardShortcuts.Key {
+        if let fixed = fixedKey { return fixed }
+        switch self {
+        case .maximize: return KeyboardShortcuts.Key(rawValue: settings.maximizeKey)
+        case .restore: return KeyboardShortcuts.Key(rawValue: settings.restoreKey)
+        case .center: return KeyboardShortcuts.Key(rawValue: settings.centerKey)
+        default: fatalError("Unexpected configurable action: \(self)")
+        }
+    }
+
+    func resolvedModifiers(from settings: Settings = .shared) -> NSEvent.ModifierFlags {
+        switch group {
+        case .tiling: return settings.tilingModifiers
+        case .monitor: return settings.monitorModifiers
+        }
+    }
+
+    func resolvedShortcut(from settings: Settings = .shared) -> KeyboardShortcuts.Shortcut {
+        KeyboardShortcuts.Shortcut(resolvedKey(from: settings), modifiers: resolvedModifiers(from: settings))
     }
 }
