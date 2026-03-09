@@ -27,36 +27,36 @@ enum SnapZone {
         case .maximized:
             return CGRect(x: x, y: topY, width: width, height: height)
 
-        case .leftHalf:
-            return CGRect(x: x, y: topY, width: (width - gap) / 2, height: height)
-
-        case .rightHalf:
-            return CGRect(x: x + (width + gap) / 2, y: topY, width: (width - gap) / 2, height: height)
-
         case .topHalf:
             return CGRect(x: x, y: topY, width: width, height: (height - gap) / 2)
 
         case .bottomHalf:
             return CGRect(x: x, y: topY + (height + gap) / 2, width: width, height: (height - gap) / 2)
 
-        case .topLeftQuarter:
-            return CGRect(x: x, y: topY, width: (width - gap) / 2, height: (height - gap) / 2)
+        case .tiled(let side, let widthFrac, let vertical):
+            let tileWidth = (width - gap) * widthFrac.value
+            let tileX: CGFloat
+            if side == .left {
+                tileX = x
+            } else {
+                tileX = x + (width - gap) * (1 - widthFrac.value) + gap
+            }
 
-        case .topRightQuarter:
-            return CGRect(x: x + (width + gap) / 2, y: topY, width: (width - gap) / 2, height: (height - gap) / 2)
+            let tileHeight: CGFloat
+            let tileY: CGFloat
+            switch vertical {
+            case .full:
+                tileHeight = height
+                tileY = topY
+            case .top:
+                tileHeight = (height - gap) / 2
+                tileY = topY
+            case .bottom:
+                tileHeight = (height - gap) / 2
+                tileY = topY + (height + gap) / 2
+            }
 
-        case .bottomLeftQuarter:
-            return CGRect(x: x, y: topY + (height + gap) / 2, width: (width - gap) / 2, height: (height - gap) / 2)
-
-        case .bottomRightQuarter:
-            return CGRect(x: x + (width + gap) / 2, y: topY + (height + gap) / 2, width: (width - gap) / 2, height: (height - gap) / 2)
-
-        case .leftStrip:
-            return CGRect(x: x, y: topY, width: (width - gap) / 4, height: height)
-
-        case .rightStrip:
-            let stripWidth = (width - gap) / 4
-            return CGRect(x: x + width - stripWidth, y: topY, width: stripWidth, height: height)
+            return CGRect(x: tileX, y: tileY, width: tileWidth, height: tileHeight)
         }
     }
 }

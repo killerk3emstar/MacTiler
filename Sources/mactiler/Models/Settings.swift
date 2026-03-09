@@ -18,6 +18,10 @@ final class Settings {
         static let maximizeKey = "maximizeKey"
         static let restoreKey = "restoreKey"
         static let centerKey = "centerKey"
+        static let fractionQuarter = "fractionQuarter"
+        static let fractionThird = "fractionThird"
+        static let fractionTwoThirds = "fractionTwoThirds"
+        static let fractionThreeQuarters = "fractionThreeQuarters"
     }
 
     private init() {}
@@ -48,6 +52,18 @@ final class Settings {
     var animationsEnabled: Bool {
         get { defaults.object(forKey: Keys.animationsEnabled) == nil ? true : defaults.bool(forKey: Keys.animationsEnabled) }
         set { defaults.set(newValue, forKey: Keys.animationsEnabled) }
+    }
+
+    // MARK: - Width fractions
+
+    /// Sorted list of enabled fractions (1/2 always included)
+    var enabledWidthFractions: [WidthFraction] {
+        var result: [WidthFraction] = [.half]
+        if defaults.bool(forKey: Keys.fractionQuarter) { result.append(.quarter) }
+        if defaults.bool(forKey: Keys.fractionThird) { result.append(.third) }
+        if defaults.bool(forKey: Keys.fractionTwoThirds) { result.append(.twoThirds) }
+        if defaults.bool(forKey: Keys.fractionThreeQuarters) { result.append(.threeQuarters) }
+        return result.sorted()
     }
 
     // MARK: - Shortcut modifier groups

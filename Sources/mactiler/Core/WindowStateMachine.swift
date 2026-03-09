@@ -13,21 +13,10 @@ final class WindowStateMachine {
     private init() {}
 
     func determineAction(currentState: WindowState, direction: SnapDirection) -> SnapAction {
-        let currentPosition = currentState.snapPosition
-
-        // Get the next position from transition table
-        if let nextPosition = currentPosition.transition(direction: direction) {
-            return .snapTo(nextPosition)
-        }
-
-        // No direct transition - check what special action to take
-        let special = currentPosition.specialAction(direction: direction)
-        switch special {
-        case .minimize:
-            return .minimize
-        case .restore:
-            return .restore
-        }
+        currentState.snapPosition.transition(
+            direction: direction,
+            enabledFractions: Settings.shared.enabledWidthFractions
+        )
     }
 
     func actionForMaximize(currentState: WindowState) -> SnapAction {

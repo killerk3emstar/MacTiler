@@ -41,6 +41,11 @@ struct GeneralSettingsView: View {
     @AppStorage("animationsEnabled") private var animationsEnabled: Bool = true
     @AppStorage("windowGap") private var windowGap: Double = 0
 
+    @AppStorage("fractionQuarter") private var quarterEnabled = false
+    @AppStorage("fractionThird") private var thirdEnabled = false
+    @AppStorage("fractionTwoThirds") private var twoThirdsEnabled = false
+    @AppStorage("fractionThreeQuarters") private var threeQuartersEnabled = false
+
     var body: some View {
         Form {
             Section {
@@ -56,6 +61,18 @@ struct GeneralSettingsView: View {
                 Toggle("Restore original size when untiled", isOn: $restoreSizeOnUntile)
 
                 Toggle("Animate window transitions", isOn: $animationsEnabled)
+            }
+
+            Section("Tiling Sizes") {
+                Text("Sizes to cycle through when pressing the same direction repeatedly")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                Toggle("1/4", isOn: $quarterEnabled)
+                Toggle("1/3", isOn: $thirdEnabled)
+                Toggle("1/2 (always enabled)", isOn: .constant(true)).disabled(true)
+                Toggle("2/3", isOn: $twoThirdsEnabled)
+                Toggle("3/4", isOn: $threeQuartersEnabled)
             }
 
             Section("Window Gap") {

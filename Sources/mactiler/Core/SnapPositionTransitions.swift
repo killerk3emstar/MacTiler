@@ -7,97 +7,84 @@ enum SnapDirection {
     case right
 }
 
-/// Special actions that aren't just position changes
-enum SpecialAction {
-    case minimize
-    case restore
-}
-
 extension SnapPosition {
-    /// Returns the next position, or nil if a special action should be taken
-    func transition(direction: SnapDirection) -> SnapPosition? {
+    func transition(direction: SnapDirection, enabledFractions: [WidthFraction]) -> SnapAction {
         switch (self, direction) {
-        // From floating
-        case (.floating, .up): return .maximized
-        case (.floating, .down): return nil  // Special: minimize
-        case (.floating, .left): return .leftHalf
-        case (.floating, .right): return .rightHalf
+        // floating
+        case (.floating, .up):    return .snapTo(.maximized)
+        case (.floating, .down):  return .minimize
+        case (.floating, .left):  return .snapTo(.tiled(side: .left, width: .half, vertical: .full))
+        case (.floating, .right): return .snapTo(.tiled(side: .right, width: .half, vertical: .full))
 
-        // From maximized - up goes to topHalf (shrink upward)
-        case (.maximized, .up): return .topHalf
-        case (.maximized, .down): return nil  // Special: restore
-        case (.maximized, .left): return .leftHalf
-        case (.maximized, .right): return .rightHalf
+        // maximized
+        case (.maximized, .up):    return .snapTo(.topHalf)
+        case (.maximized, .down):  return .restore
+        case (.maximized, .left):  return .snapTo(.tiled(side: .left, width: .half, vertical: .full))
+        case (.maximized, .right): return .snapTo(.tiled(side: .right, width: .half, vertical: .full))
 
-        // From leftHalf
-        case (.leftHalf, .up): return .topLeftQuarter
-        case (.leftHalf, .down): return .bottomLeftQuarter
-        case (.leftHalf, .left): return .leftStrip
-        case (.leftHalf, .right): return .rightHalf
+        // topHalf
+        case (.topHalf, .up):    return .snapTo(.maximized)
+        case (.topHalf, .down):  return .restore
+        case (.topHalf, .left):  return .snapTo(.tiled(side: .left, width: .half, vertical: .top))
+        case (.topHalf, .right): return .snapTo(.tiled(side: .right, width: .half, vertical: .top))
 
-        // From rightHalf
-        case (.rightHalf, .up): return .topRightQuarter
-        case (.rightHalf, .down): return .bottomRightQuarter
-        case (.rightHalf, .left): return .leftHalf
-        case (.rightHalf, .right): return .rightStrip
+        // bottomHalf
+        case (.bottomHalf, .up):    return .snapTo(.topHalf)
+        case (.bottomHalf, .down):  return .restore
+        case (.bottomHalf, .left):  return .snapTo(.tiled(side: .left, width: .half, vertical: .bottom))
+        case (.bottomHalf, .right): return .snapTo(.tiled(side: .right, width: .half, vertical: .bottom))
 
-        // From topLeftQuarter - up/down expand to half first
-        case (.topLeftQuarter, .up): return .maximized
-        case (.topLeftQuarter, .down): return .leftHalf  // Expand down to fill left side
-        case (.topLeftQuarter, .left): return .leftStrip
-        case (.topLeftQuarter, .right): return .topRightQuarter
-
-        // From topRightQuarter - up/down expand to half first
-        case (.topRightQuarter, .up): return .maximized
-        case (.topRightQuarter, .down): return .rightHalf  // Expand down to fill right side
-        case (.topRightQuarter, .left): return .topLeftQuarter
-        case (.topRightQuarter, .right): return .rightStrip
-
-        // From bottomLeftQuarter - up expands, down restores
-        case (.bottomLeftQuarter, .up): return .leftHalf  // Expand up to fill left side
-        case (.bottomLeftQuarter, .down): return nil  // Special: restore (nowhere to go)
-        case (.bottomLeftQuarter, .left): return .leftStrip
-        case (.bottomLeftQuarter, .right): return .bottomRightQuarter
-
-        // From bottomRightQuarter - up expands, down restores
-        case (.bottomRightQuarter, .up): return .rightHalf  // Expand up to fill right side
-        case (.bottomRightQuarter, .down): return nil  // Special: restore (nowhere to go)
-        case (.bottomRightQuarter, .left): return .bottomLeftQuarter
-        case (.bottomRightQuarter, .right): return .rightStrip
-
-        // From topHalf
-        case (.topHalf, .up): return .maximized
-        case (.topHalf, .down): return nil  // Special: restore
-        case (.topHalf, .left): return .topLeftQuarter
-        case (.topHalf, .right): return .topRightQuarter
-
-        // From bottomHalf
-        case (.bottomHalf, .up): return .topHalf
-        case (.bottomHalf, .down): return nil  // Special: restore
-        case (.bottomHalf, .left): return .bottomLeftQuarter
-        case (.bottomHalf, .right): return .bottomRightQuarter
-
-        // From leftStrip
-        case (.leftStrip, .up): return .topLeftQuarter
-        case (.leftStrip, .down): return .bottomLeftQuarter
-        case (.leftStrip, .left): return nil  // Special: restore
-        case (.leftStrip, .right): return .leftHalf
-
-        // From rightStrip
-        case (.rightStrip, .up): return .topRightQuarter
-        case (.rightStrip, .down): return .bottomRightQuarter
-        case (.rightStrip, .left): return .rightHalf
-        case (.rightStrip, .right): return nil  // Special: restore
+        // tiled
+        case (.tiled(let side, let width, let vertical), let dir):
+            return tiledTransition(side: side, width: width, vertical: vertical,
+                                   direction: dir, enabledFractions: enabledFractions)
         }
     }
 
-    /// Determines what special action to take when transition returns nil
-    func specialAction(direction: SnapDirection) -> SpecialAction {
-        switch (self, direction) {
-        case (.floating, .down):
-            return .minimize
-        default:
-            return .restore
+    private func tiledTransition(side: SnapSide, width: WidthFraction, vertical: VerticalSlice,
+                                 direction: SnapDirection, enabledFractions: [WidthFraction]) -> SnapAction {
+        let isSame = (side == .left && direction == .left) || (side == .right && direction == .right)
+        let isOpposite = (side == .left && direction == .right) || (side == .right && direction == .left)
+        let otherSide: SnapSide = side == .left ? .right : .left
+
+        // Quarters (top/bottom) — no fraction cycling
+        if vertical != .full {
+            if isSame {
+                return .snapTo(.tiled(side: side, width: .half, vertical: .full))
+            }
+            if isOpposite {
+                return .snapTo(.tiled(side: otherSide, width: .half, vertical: vertical))
+            }
         }
+
+        // Full-height — fraction cycling / restore
+        if isSame {
+            guard let nextWidth = nextFraction(after: width, in: enabledFractions) else {
+                return .noOp
+            }
+            return .snapTo(.tiled(side: side, width: nextWidth, vertical: .full))
+        }
+
+        if isOpposite { return .restore }
+
+        // up/down — change vertical slice (quarters always half-width)
+        switch (direction, vertical) {
+        case (.up, .full):   return .snapTo(.tiled(side: side, width: .half, vertical: .top))
+        case (.up, .top):    return .snapTo(.maximized)
+        case (.up, .bottom): return .snapTo(.tiled(side: side, width: .half, vertical: .full))
+        case (.down, .full):   return .snapTo(.tiled(side: side, width: .half, vertical: .bottom))
+        case (.down, .top):    return .snapTo(.tiled(side: side, width: .half, vertical: .full))
+        case (.down, .bottom): return .restore
+        default: return .noOp
+        }
+    }
+
+    private func nextFraction(after current: WidthFraction, in enabled: [WidthFraction]) -> WidthFraction? {
+        guard enabled.count > 1 else { return nil }
+        if let idx = enabled.firstIndex(of: current) {
+            return enabled[(idx + 1) % enabled.count]
+        }
+        // Current fraction not in enabled list — find nearest larger, or wrap to first
+        return enabled.first(where: { $0 > current }) ?? enabled.first
     }
 }
