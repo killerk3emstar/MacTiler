@@ -1,39 +1,33 @@
 import AppKit
+import ApplicationServices
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
-    private let shortcutManager = ShortcutManager.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Logger.log("MacTiler starting...")
+        Log.info("MacTiler starting")
 
-        checkAccessibilityPermissions()
+        // Global cap for AX calls into other apps. AXWindow sets tighter
+        // per-window timeouts on top of this.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
 
-        shortcutManager.setupShortcuts()
+        if !AccessibilityPermissions.isGranted {
+            Log.error("Accessibility not granted, requesting")
+            AccessibilityPermissions.requestPermissions()
+        }
 
-        statusBarController = StatusBarController()
-        statusBarController?.setup()
-        Logger.log("Status bar ready")
+        ShortcutAction.registerAll()
+        WindowManager.shared.start()
 
-        WindowManager.shared.setupDragDetection()
+        let statusBar = StatusBarController()
+        statusBar.setup()
+        statusBarController = statusBar
 
-        Logger.success("MacTiler ready!")
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        Logger.log("MacTiler shutting down")
+        Log.info("MacTiler ready")
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        return true
-    }
-
-    private func checkAccessibilityPermissions() {
-        if AccessibilityPermissions.isGranted {
-            Logger.success("Accessibility: granted")
-        } else {
-            Logger.error("Accessibility: NOT granted - requesting...")
-            AccessibilityPermissions.requestPermissions()
-        }
+        true
     }
 }

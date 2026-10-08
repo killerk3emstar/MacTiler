@@ -1,391 +1,205 @@
 import AppKit
+import MacTilerCore
 
+/// What we remember about a snapped window. Floating windows have no entry.
+struct WindowState {
+    var position: SnapPosition
+    /// Frame before the first snap; `Restore` goes back here.
+    var originalFrame: CGRect
+    /// Where the window should be right now. Starts as the target frame and is
+    /// replaced by the real frame once the app has settled.
+    var expectedFrame: CGRect
+}
+
+@MainActor
 final class WindowManager {
     static let shared = WindowManager()
 
-    private let stateMachine = WindowStateMachine.shared
-    private let stateStore = WindowStateStore.shared
-    private let screenManager = ScreenManager.shared
+    private var states: [CGWindowID: WindowState] = [:]
+    private let mover = WindowMover.shared
+    private let observer = WindowObserver.shared
+    private let settings = Settings.shared
 
-    private var dragMonitor: Any?
+    func start() {
+        observer.onUserDragged = { [weak self] window in self?.userDragged(window) }
+        observer.onClosed = { [weak self] id in self?.states[id] = nil }
+        observer.start()
 
-    private init() {}
-
-    func setupDragDetection() {
-        dragMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] _ in
-            self?.checkForDragDrift()
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { WindowMover.shared.finishCurrent() }
         }
     }
 
-    private func checkForDragDrift() {
-        WindowAnimator.shared.finalizePendingAnimation()
-
-        guard Settings.shared.restoreSizeOnUntile else { return }
-
-        guard let window = AccessibilityElement.focusedWindow,
-              let windowId = window.windowId,
-              !window.isFullScreen,
-              !window.isMinimized else { return }
-
-        let state = stateStore.state(for: windowId)
-        guard state.isSnapped,
-              let snappedFrame = state.snappedFrame,
-              let currentFrame = window.frame,
-              hasDrifted(currentFrame, from: snappedFrame) else { return }
-
-        if let originalFrame = state.originalFrame {
-            let restoredFrame = CGRect(
-                x: currentFrame.origin.x,
-                y: currentFrame.origin.y,
-                width: originalFrame.width,
-                height: originalFrame.height
-            )
-            window.setFrame(restoredFrame)
-            Logger.log("Drag detected: restored original size")
-        }
-        stateStore.resetToFloating(for: windowId)
-    }
+    // MARK: - Actions
 
     func handleDirection(_ direction: SnapDirection) {
-        Logger.action("Direction: \(direction)")
+        Log.info("Direction: \(direction)")
 
-        guard AccessibilityPermissions.isGranted else {
-            Logger.error("No accessibility permission")
-            AccessibilityPermissions.requestPermissions()
+        if direction == .up, settings.minimizeEnabled, AXWindow.focused() == nil,
+           let minimized = AXWindow.lastMinimizedOfFrontmostApp() {
+            Log.info("No focused window, unminimizing \(minimized.id)")
+            minimized.unminimize()
+            minimized.raise()
             return
         }
 
-        guard let window = AccessibilityElement.focusedWindow else {
-            // No focused window — try to unminimize the most recently minimized one
-            if direction == .up, Settings.shared.minimizeEnabled,
-               let minimizedWindow = AccessibilityElement.lastMinimizedWindowOfFrontmostApp {
-                let title = minimizedWindow.title ?? "Unknown"
-                Logger.log("No focused window, unminimizing: \"\(title)\"")
-                minimizedWindow.unminimize()
-                minimizedWindow.bringToFront()
-                Logger.success("Unminimized to floating")
-            } else {
-                Logger.error("No focused window")
-            }
-            return
+        withFocusedWindow { window, position in
+            perform(position.transition(direction: direction, enabledFractions: settings.enabledWidthFractions),
+                    on: window)
         }
-
-        guard let windowId = window.windowId else {
-            Logger.error("Could not get window ID")
-            return
-        }
-
-        guard !window.isFullScreen else {
-            Logger.log("Window is fullscreen, ignoring")
-            return
-        }
-
-        guard !window.isMinimized else {
-            Logger.log("Window is minimized, ignoring")
-            return
-        }
-
-        let windowTitle = window.title ?? "Unknown"
-        Logger.log("Window: \"\(windowTitle)\" (id: \(windowId))")
-
-        WindowAnimator.shared.finalizePendingAnimation()
-        validateWindowState(window: window, windowId: windowId)
-
-        let currentState = stateStore.state(for: windowId)
-        Logger.log("Current state: \(currentState.snapPosition)")
-
-        let action = stateMachine.determineAction(currentState: currentState, direction: direction)
-        Logger.log("Action: \(action)")
-
-        executeAction(action, on: window, windowId: windowId)
     }
 
     func maximize() {
-        withPreparedWindow { window, windowId in
-            let currentState = stateStore.state(for: windowId)
-            let action = stateMachine.actionForMaximize(currentState: currentState)
-            executeAction(action, on: window, windowId: windowId)
-        }
+        withFocusedWindow { window, position in perform(position.maximizeAction, on: window) }
     }
 
     func restore() {
-        withPreparedWindow { window, windowId in
-            let currentState = stateStore.state(for: windowId)
-            let action = stateMachine.actionForRestore(currentState: currentState)
-            executeAction(action, on: window, windowId: windowId)
-        }
+        withFocusedWindow { window, position in perform(position.restoreAction, on: window) }
     }
 
     func center() {
-        withPreparedWindow { window, windowId in
-            guard let currentFrame = window.frame,
-                  let screen = screenManager.screen(for: window) else { return }
-
-            let centeredFrame = centeredFrame(for: currentFrame.size, on: screen)
-
-            if Settings.shared.animationsEnabled {
-                WindowAnimator.shared.animate(window: window, from: currentFrame, to: centeredFrame) { [self] _ in
-                    stateStore.resetToFloating(for: windowId)
-                }
-            } else {
-                window.setFrame(centeredFrame)
-                stateStore.resetToFloating(for: windowId)
-            }
+        withFocusedWindow { window, _ in
+            guard let frame = window.frame, let screen = Screen.containing(frame) else { return }
+            forget(window.id)
+            mover.move(window, to: Geometry.centered(frame.size, in: screen.visibleFrame),
+                       animated: settings.animationsEnabled)
         }
     }
 
     func moveToMonitor(_ direction: SnapDirection) {
-        Logger.action("Move to monitor: \(direction)")
+        Log.info("Move to monitor: \(direction)")
 
-        guard AccessibilityPermissions.isGranted else {
-            Logger.error("No accessibility permission")
-            AccessibilityPermissions.requestPermissions()
-            return
-        }
-
-        guard let window = AccessibilityElement.focusedWindow else {
-            Logger.error("No focused window")
-            return
-        }
-
-        guard let windowId = window.windowId else {
-            Logger.error("Could not get window ID")
-            return
-        }
-
-        guard !window.isFullScreen, !window.isMinimized else {
-            Logger.log("Window is fullscreen or minimized, ignoring")
-            return
-        }
-
-        guard let currentScreen = screenManager.screen(for: window) else {
-            Logger.error("Could not determine current screen")
-            return
-        }
-
-        guard let targetScreen = screenManager.adjacentScreen(to: currentScreen, direction: direction) else {
-            Logger.log("No adjacent screen in direction \(direction)")
-            return
-        }
-
-        validateWindowState(window: window, windowId: windowId)
-
-        let currentState = stateStore.state(for: windowId)
-        let windowTitle = window.title ?? "Unknown"
-        Logger.log("Moving \"\(windowTitle)\" to adjacent monitor (\(direction)), state: \(currentState.snapPosition)")
-
-        if currentState.snapPosition != .floating {
-            // Snapped: recalculate same position on target screen
-            let position = currentState.snapPosition
-            let targetFrame = SnapZone.calculateFrame(for: position, on: targetScreen)
-            window.setFrame(targetFrame)
-
-            applyAnchorCorrection(window: window, targetFrame: targetFrame, position: position)
-
-            if let achievedFrame = window.frame {
-                stateStore.setSnappedFrame(achievedFrame, for: windowId)
+        withFocusedWindow { window, position in
+            guard let frame = window.frame,
+                  let current = Screen.containing(frame),
+                  let target = current.adjacent(direction) else {
+                Log.info("No screen in direction \(direction)")
+                return
             }
 
-            // Rebase originalFrame onto target screen so restore doesn't jump back
-            if let origFrame = currentState.originalFrame {
-                var updatedState = stateStore.state(for: windowId)
-                updatedState.originalFrame = centeredFrame(for: origFrame.size, on: targetScreen)
-                stateStore.updateState(updatedState)
-            }
-
-            Logger.success("Moved to adjacent monitor, kept \(currentState.snapPosition)")
-        } else {
-            // Floating: center on target screen
-            guard let currentFrame = window.frame else { return }
-            window.setFrame(centeredFrame(for: currentFrame.size, on: targetScreen))
-            Logger.success("Moved to adjacent monitor, centered")
-        }
-    }
-
-    /// Re-anchor window position if it couldn't shrink to target size.
-    /// For right-aligned positions, keeps right edge fixed; for bottom-aligned, keeps bottom edge fixed.
-    private func applyAnchorCorrection(window: AccessibilityElement, targetFrame: CGRect, position: SnapPosition) {
-        guard let actualFrame = window.frame else { return }
-
-        var adjustedOrigin = targetFrame.origin
-        var needsAdjust = false
-
-        if position.isRightAligned && actualFrame.width > targetFrame.width {
-            adjustedOrigin.x = targetFrame.origin.x + targetFrame.width - actualFrame.width
-            needsAdjust = true
-        }
-
-        if position.isBottomAligned && actualFrame.height > targetFrame.height {
-            adjustedOrigin.y = targetFrame.origin.y + targetFrame.height - actualFrame.height
-            needsAdjust = true
-        }
-
-        if needsAdjust {
-            Logger.log("Window couldn't achieve target size, re-anchoring position")
-            window.position = adjustedOrigin
-        }
-    }
-
-    /// Common setup for actions on the focused window: permission check, guards, finalize animation, validate state.
-    private func withPreparedWindow(_ action: (AccessibilityElement, CGWindowID) -> Void) {
-        guard AccessibilityPermissions.isGranted else {
-            AccessibilityPermissions.requestPermissions()
-            return
-        }
-
-        guard let window = AccessibilityElement.focusedWindow,
-              let windowId = window.windowId,
-              !window.isFullScreen,
-              !window.isMinimized else { return }
-
-        WindowAnimator.shared.finalizePendingAnimation()
-        validateWindowState(window: window, windowId: windowId)
-        action(window, windowId)
-    }
-
-    private func validateWindowState(window: AccessibilityElement, windowId: CGWindowID) {
-        let state = stateStore.state(for: windowId)
-        guard state.isSnapped,
-              let snappedFrame = state.snappedFrame,
-              let currentFrame = window.frame,
-              hasDrifted(currentFrame, from: snappedFrame) else { return }
-
-        Logger.log("Window manually moved/resized, resetting to floating")
-
-        if Settings.shared.restoreSizeOnUntile, let originalFrame = state.originalFrame {
-            let restoredFrame = CGRect(
-                x: currentFrame.origin.x,
-                y: currentFrame.origin.y,
-                width: originalFrame.width,
-                height: originalFrame.height
-            )
-            window.setFrame(restoredFrame)
-            Logger.log("Restored original size: \(originalFrame.width)x\(originalFrame.height)")
-        }
-
-        stateStore.resetToFloating(for: windowId)
-    }
-
-    /// Calculate a centered frame for a given size on a screen (in AX coordinates).
-    private func centeredFrame(for size: CGSize, on screen: NSScreen) -> CGRect {
-        let visibleFrame = screen.visibleFrame
-        let screenHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
-        let topY = screenHeight - visibleFrame.origin.y - visibleFrame.height
-
-        return CGRect(
-            x: visibleFrame.origin.x + (visibleFrame.width - size.width) / 2,
-            y: topY + (visibleFrame.height - size.height) / 2,
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    private func hasDrifted(_ current: CGRect, from snapped: CGRect) -> Bool {
-        let tolerance: CGFloat = 5
-        return abs(current.origin.x - snapped.origin.x) > tolerance
-            || abs(current.origin.y - snapped.origin.y) > tolerance
-            || abs(current.width - snapped.width) > tolerance
-            || abs(current.height - snapped.height) > tolerance
-    }
-
-    private func executeAction(_ action: SnapAction, on window: AccessibilityElement, windowId: CGWindowID) {
-        switch action {
-        case .snapTo(let position):
-            snapWindow(window, windowId: windowId, to: position)
-
-        case .restore:
-            restoreWindow(window, windowId: windowId)
-
-        case .minimize:
-            minimizeWindow(window, windowId: windowId)
-
-        case .noOp:
-            break
-        }
-    }
-
-    private func snapWindow(_ window: AccessibilityElement, windowId: CGWindowID, to position: SnapPosition) {
-        guard let screen = screenManager.screen(for: window) else {
-            Logger.error("Could not determine screen for window")
-            return
-        }
-
-        guard let currentFrame = window.frame else {
-            Logger.error("Could not read window frame")
-            return
-        }
-
-        // Save original frame before first snap
-        let state = stateStore.state(for: windowId)
-        if state.originalFrame == nil {
-            Logger.log("Saving original frame: \(currentFrame)")
-        }
-        stateStore.saveOriginalFrame(currentFrame, for: windowId)
-
-        // Calculate target frame
-        let targetFrame = SnapZone.calculateFrame(for: position, on: screen)
-        Logger.log("Target frame: \(targetFrame)")
-
-        if Settings.shared.animationsEnabled {
-            WindowAnimator.shared.animate(window: window, from: currentFrame, to: targetFrame,
-                                          anchorPosition: position) { [self] achievedFrame in
-                // Store achieved frame for drift detection
-                if let achieved = achievedFrame {
-                    stateStore.setSnappedFrame(achieved, for: windowId)
-                } else if let fallback = window.frame {
-                    stateStore.setSnappedFrame(fallback, for: windowId)
-                }
-                stateStore.setSnapPosition(position, for: windowId)
-                Logger.success("Snapped to \(position)")
-            }
-        } else {
-            window.setFrame(targetFrame)
-            applyAnchorCorrection(window: window, targetFrame: targetFrame, position: position)
-
-            if let achievedFrame = window.frame {
-                stateStore.setSnappedFrame(achievedFrame, for: windowId)
-            }
-            stateStore.setSnapPosition(position, for: windowId)
-            Logger.success("Snapped to \(position)")
-        }
-    }
-
-    private func restoreWindow(_ window: AccessibilityElement, windowId: CGWindowID) {
-        let state = stateStore.state(for: windowId)
-
-        if let originalFrame = state.originalFrame {
-            Logger.log("Restoring to original frame: \(originalFrame)")
-
-            if Settings.shared.animationsEnabled {
-                guard let currentFrame = window.frame else {
-                    window.setFrame(originalFrame)
-                    stateStore.resetToFloating(for: windowId)
-                    Logger.success("Restored")
-                    return
-                }
-                WindowAnimator.shared.animate(window: window, from: currentFrame, to: originalFrame) { [self] _ in
-                    stateStore.resetToFloating(for: windowId)
-                    Logger.success("Restored")
-                }
+            // Moves across displays are never animated (see WindowMover).
+            if position != .floating, var state = states[window.id],
+               let targetFrame = Geometry.frame(for: position, in: target.visibleFrame, gap: settings.windowGap) {
+                // Rebase the original frame so Restore stays on the new screen
+                state.originalFrame = Geometry.centered(state.originalFrame.size, in: target.visibleFrame)
+                state.expectedFrame = targetFrame
+                states[window.id] = state
+                move(window, to: targetFrame, anchor: position.anchor, animated: false)
             } else {
-                window.setFrame(originalFrame)
-                stateStore.resetToFloating(for: windowId)
-                Logger.success("Restored")
+                mover.move(window, to: Geometry.centered(frame.size, in: target.visibleFrame), animated: false)
             }
-        } else {
-            Logger.error("No original frame to restore!")
-            stateStore.resetToFloating(for: windowId)
         }
     }
 
-    private func minimizeWindow(_ window: AccessibilityElement, windowId: CGWindowID) {
-        guard Settings.shared.minimizeEnabled else {
-            Logger.log("Minimize disabled in settings, ignoring")
+    // MARK: - Internals
+
+    /// Shared preamble: permission, a usable focused window, finish any
+    /// running animation, and drop stale state if the window was changed
+    /// behind our back.
+    private func withFocusedWindow(_ body: (AXWindow, SnapPosition) -> Void) {
+        guard AccessibilityPermissions.isGranted else {
+            Log.error("No accessibility permission")
+            AccessibilityPermissions.requestPermissions()
             return
         }
-        Logger.log("Minimizing window")
+        guard let window = AXWindow.focused() else {
+            Log.info("No focused window")
+            return
+        }
+        guard !window.isFullScreen, !window.isMinimized else {
+            Log.info("Window \(window.id) is fullscreen or minimized, ignoring")
+            return
+        }
+
+        mover.finishCurrent()
+        dropStateIfDrifted(window)
+        body(window, states[window.id]?.position ?? .floating)
+    }
+
+    /// If a snapped window is no longer where we put it (the app or another
+    /// tool moved it), treat it as floating. No resize here: only real user
+    /// drags restore the original size, see `userDragged`.
+    private func dropStateIfDrifted(_ window: AXWindow) {
+        guard let state = states[window.id], !mover.isBusy(window.id),
+              let frame = window.frame,
+              Geometry.hasDrifted(frame, from: state.expectedFrame) else { return }
+        Log.info("Window \(window.id) moved since last snap, now floating")
+        forget(window.id)
+    }
+
+    private func perform(_ action: SnapAction, on window: AXWindow) {
+        Log.info("Action: \(action)")
+        switch action {
+        case .snapTo(let position): snap(window, to: position)
+        case .restore: restoreOriginal(window)
+        case .minimize: minimize(window)
+        case .noOp: break
+        }
+    }
+
+    private func snap(_ window: AXWindow, to position: SnapPosition) {
+        guard let frame = window.frame,
+              let screen = Screen.containing(frame),
+              let target = Geometry.frame(for: position, in: screen.visibleFrame, gap: settings.windowGap) else {
+            Log.error("Could not compute target for window \(window.id)")
+            return
+        }
+
+        // State changes now, not when the animation ends, so a fast second
+        // keypress already sees the new position.
+        let original = states[window.id]?.originalFrame ?? frame
+        states[window.id] = WindowState(position: position, originalFrame: original, expectedFrame: target)
+        observer.watch(window)
+
+        move(window, to: target, anchor: position.anchor, animated: settings.animationsEnabled)
+    }
+
+    private func move(_ window: AXWindow, to target: CGRect, anchor: AnchorEdges, animated: Bool) {
+        let id = window.id
+        mover.move(window, to: target, anchor: anchor, animated: animated) { [weak self] settled in
+            self?.states[id]?.expectedFrame = settled
+        }
+    }
+
+    private func restoreOriginal(_ window: AXWindow) {
+        guard let state = states[window.id] else { return }
+        forget(window.id)
+        mover.move(window, to: state.originalFrame, animated: settings.animationsEnabled)
+    }
+
+    private func minimize(_ window: AXWindow) {
+        guard settings.minimizeEnabled else { return }
+        forget(window.id)
         window.minimize()
-        stateStore.resetToFloating(for: windowId)
-        Logger.success("Minimized")
+    }
+
+    /// The user dragged a snapped window away: it is floating now. Optionally
+    /// give it back its pre-snap size where the user dropped it, like Windows.
+    /// A drag that resized the window is left alone: the user chose that size.
+    private func userDragged(_ window: AXWindow) {
+        guard let state = states[window.id] else { return }
+        forget(window.id)
+
+        guard settings.restoreSizeOnUntile, let frame = window.frame else { return }
+        let wasResized = abs(frame.width - state.expectedFrame.width) > 1
+            || abs(frame.height - state.expectedFrame.height) > 1
+        guard !wasResized, frame.size != state.originalFrame.size else { return }
+
+        // Keep the point under the cursor at the same relative spot in the title bar
+        let size = state.originalFrame.size
+        let cursorX = NSEvent.mouseLocation.x
+        let ratio = frame.width > 0 ? (cursorX - frame.minX) / frame.width : 0.5
+        let x = cursorX - ratio * size.width
+
+        Log.info("Window \(window.id) dragged out of snap, restoring size")
+        mover.move(window, to: CGRect(x: x.rounded(), y: frame.minY, width: size.width, height: size.height),
+                   animated: false)
+    }
+
+    private func forget(_ id: CGWindowID) {
+        states[id] = nil
+        observer.unwatch(id)
     }
 }

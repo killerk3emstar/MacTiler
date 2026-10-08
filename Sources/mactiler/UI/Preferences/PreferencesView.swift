@@ -1,6 +1,6 @@
 import SwiftUI
-import KeyboardShortcuts
 import Carbon.HIToolbox
+import MacTilerCore
 
 struct PreferencesView: View {
     @State private var selectedTab = 0
@@ -24,8 +24,7 @@ struct PreferencesView: View {
                 switch selectedTab {
                 case 0: GeneralSettingsView()
                 case 1: ShortcutsSettingsView()
-                case 2: AboutView()
-                default: EmptyView()
+                default: AboutView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -35,32 +34,18 @@ struct PreferencesView: View {
 }
 
 struct GeneralSettingsView: View {
-    @State private var launchAtLogin = Settings.shared.launchAtLogin
-    @AppStorage("minimizeEnabled") private var minimizeEnabled: Bool = true
-    @AppStorage("restoreSizeOnUntile") private var restoreSizeOnUntile: Bool = false
-    @AppStorage("animationsEnabled") private var animationsEnabled: Bool = true
-    @AppStorage("windowGap") private var windowGap: Double = 0
-
-    @AppStorage("fractionQuarter") private var quarterEnabled = false
-    @AppStorage("fractionThird") private var thirdEnabled = false
-    @AppStorage("fractionTwoThirds") private var twoThirdsEnabled = false
-    @AppStorage("fractionThreeQuarters") private var threeQuartersEnabled = false
+    @Bindable private var settings = Settings.shared
 
     var body: some View {
         Form {
             Section {
-                Toggle("Launch at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, newValue in
-                        Settings.shared.launchAtLogin = newValue
-                    }
+                Toggle("Launch at login", isOn: $settings.launchAtLogin)
             }
 
             Section("Behavior") {
-                Toggle("Enable minimize/unminimize", isOn: $minimizeEnabled)
-
-                Toggle("Restore original size when untiled", isOn: $restoreSizeOnUntile)
-
-                Toggle("Animate window transitions", isOn: $animationsEnabled)
+                Toggle("Enable minimize/unminimize", isOn: $settings.minimizeEnabled)
+                Toggle("Restore original size when dragged out of a tile", isOn: $settings.restoreSizeOnUntile)
+                Toggle("Animate window transitions", isOn: $settings.animationsEnabled)
             }
 
             Section("Tiling Sizes") {
@@ -68,17 +53,19 @@ struct GeneralSettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
-                Toggle("1/4", isOn: $quarterEnabled)
-                Toggle("1/3", isOn: $thirdEnabled)
-                Toggle("1/2 (always enabled)", isOn: .constant(true)).disabled(true)
-                Toggle("2/3", isOn: $twoThirdsEnabled)
-                Toggle("3/4", isOn: $threeQuartersEnabled)
+                ForEach(WidthFraction.allCases, id: \.self) { fraction in
+                    if fraction == .half {
+                        Toggle("1/2 (always enabled)", isOn: .constant(true)).disabled(true)
+                    } else {
+                        Toggle(fraction.displayName, isOn: fractionBinding(fraction))
+                    }
+                }
             }
 
             Section("Window Gap") {
                 HStack {
-                    Slider(value: $windowGap, in: 0...20, step: 1)
-                    Text("\(Int(windowGap)) px")
+                    Slider(value: $settings.windowGap, in: 0...20, step: 1)
+                    Text("\(Int(settings.windowGap)) px")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                         .frame(width: 36, alignment: .trailing)
@@ -87,6 +74,19 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+    }
+
+    private func fractionBinding(_ fraction: WidthFraction) -> Binding<Bool> {
+        Binding(
+            get: { settings.extraFractions.contains(fraction) },
+            set: { isOn in
+                if isOn {
+                    settings.extraFractions.insert(fraction)
+                } else {
+                    settings.extraFractions.remove(fraction)
+                }
+            }
+        )
     }
 }
 
@@ -155,224 +155,45 @@ private let configurableKeys: [ConfigurableKey] = [
     ConfigurableKey(name: "F12", rawValue: kVK_F12),
 ]
 
-// MARK: - Modifier toggle button
+// MARK: - Shortcuts
 
-struct ModifierToggle: View {
-    let symbol: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        Button {
-            isOn.toggle()
-        } label: {
-            Text(symbol)
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 28, height: 22)
-        }
-        .buttonStyle(.bordered)
-        .tint(isOn ? .accentColor : nil)
-        .opacity(isOn ? 1.0 : 0.5)
-    }
-}
-
-// MARK: - Shortcuts Settings View
-
+/// Edits a draft and only writes it to Settings when it is valid, so an
+/// in-between state (e.g. no modifiers while toggling) never registers.
 struct ShortcutsSettingsView: View {
-    @State private var tilingCommand: Bool
-    @State private var tilingOption: Bool
-    @State private var tilingControl: Bool
-    @State private var tilingShift: Bool
-
-    @State private var monitorCommand: Bool
-    @State private var monitorOption: Bool
-    @State private var monitorControl: Bool
-    @State private var monitorShift: Bool
-
-    @State private var maximizeKey: Int
-    @State private var restoreKey: Int
-    @State private var centerKey: Int
-
+    @State private var tiling = Settings.shared.tilingModifiers
+    @State private var monitor = Settings.shared.monitorModifiers
+    @State private var maximizeKey = Settings.shared.maximizeKey
+    @State private var restoreKey = Settings.shared.restoreKey
+    @State private var centerKey = Settings.shared.centerKey
     @State private var validationError: String?
-
-    init() {
-        let tiling: NSEvent.ModifierFlags = Settings.shared.tilingModifiers
-        _tilingCommand = State(initialValue: tiling.contains(.command))
-        _tilingOption = State(initialValue: tiling.contains(.option))
-        _tilingControl = State(initialValue: tiling.contains(.control))
-        _tilingShift = State(initialValue: tiling.contains(.shift))
-
-        let monitor: NSEvent.ModifierFlags = Settings.shared.monitorModifiers
-        _monitorCommand = State(initialValue: monitor.contains(.command))
-        _monitorOption = State(initialValue: monitor.contains(.option))
-        _monitorControl = State(initialValue: monitor.contains(.control))
-        _monitorShift = State(initialValue: monitor.contains(.shift))
-
-        _maximizeKey = State(initialValue: Settings.shared.maximizeKey)
-        _restoreKey = State(initialValue: Settings.shared.restoreKey)
-        _centerKey = State(initialValue: Settings.shared.centerKey)
-    }
-
-    private var tilingModifiers: NSEvent.ModifierFlags {
-        var flags: NSEvent.ModifierFlags = []
-        if tilingCommand { flags.insert(.command) }
-        if tilingOption { flags.insert(.option) }
-        if tilingControl { flags.insert(.control) }
-        if tilingShift { flags.insert(.shift) }
-        return flags
-    }
-
-    private var monitorModifiers: NSEvent.ModifierFlags {
-        var flags: NSEvent.ModifierFlags = []
-        if monitorCommand { flags.insert(.command) }
-        if monitorOption { flags.insert(.option) }
-        if monitorControl { flags.insert(.control) }
-        if monitorShift { flags.insert(.shift) }
-        return flags
-    }
-
-    private var tilingModifierString: String {
-        modifierString(tilingModifiers)
-    }
-
-    private var monitorModifierString: String {
-        modifierString(monitorModifiers)
-    }
-
-    private func modifierString(_ flags: NSEvent.ModifierFlags) -> String {
-        var parts: [String] = []
-        if flags.contains(.control) { parts.append("\u{2303}") }
-        if flags.contains(.option) { parts.append("\u{2325}") }
-        if flags.contains(.shift) { parts.append("\u{21E7}") }
-        if flags.contains(.command) { parts.append("\u{2318}") }
-        return parts.joined()
-    }
-
-    private func validate() -> String? {
-        if tilingModifiers.isEmpty {
-            return "Tiling shortcuts need at least one modifier."
-        }
-        if monitorModifiers.isEmpty {
-            return "Monitor shortcuts need at least one modifier."
-        }
-        if tilingModifiers == monitorModifiers {
-            return "Tiling and monitor modifiers must be different (arrow keys would conflict)."
-        }
-        if Set([maximizeKey, restoreKey, centerKey]).count < 3 {
-            return "Maximize, Restore and Center must use different keys."
-        }
-        return nil
-    }
-
-    private func applyChanges() {
-        if let error = validate() {
-            validationError = error
-            return
-        }
-        validationError = nil
-        Settings.shared.tilingModifiers = tilingModifiers
-        Settings.shared.monitorModifiers = monitorModifiers
-        Settings.shared.maximizeKey = maximizeKey
-        Settings.shared.restoreKey = restoreKey
-        Settings.shared.centerKey = centerKey
-        ShortcutManager.shared.rebuildAllShortcuts()
-    }
 
     var body: some View {
         Form {
             Section("Tiling Shortcuts") {
-                LabeledContent("Modifiers") {
-                    HStack(spacing: 4) {
-                        ModifierToggle(symbol: "\u{2303}", isOn: $tilingControl)
-                        ModifierToggle(symbol: "\u{2325}", isOn: $tilingOption)
-                        ModifierToggle(symbol: "\u{21E7}", isOn: $tilingShift)
-                        ModifierToggle(symbol: "\u{2318}", isOn: $tilingCommand)
-                    }
-                    .onChange(of: tilingControl) { applyChanges() }
-                    .onChange(of: tilingOption) { applyChanges() }
-                    .onChange(of: tilingShift) { applyChanges() }
-                    .onChange(of: tilingCommand) { applyChanges() }
-                }
+                LabeledContent("Modifiers") { ModifierPicker(flags: $tiling) }
 
                 LabeledContent("Snap Left / Right / Up / Down") {
-                    Text("\(tilingModifierString) + \u{2190}\u{2192}\u{2191}\u{2193}")
+                    Text("\(symbols(tiling)) + \u{2190}\u{2192}\u{2191}\u{2193}")
                         .foregroundStyle(.secondary)
                 }
 
-                LabeledContent("Maximize") {
-                    HStack {
-                        Text(tilingModifierString)
-                            .foregroundStyle(.secondary)
-                        Text("+")
-                            .foregroundStyle(.secondary)
-                        Picker("", selection: $maximizeKey) {
-                            ForEach(configurableKeys) { key in
-                                Text(key.name).tag(key.rawValue)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 90)
-                        .onChange(of: maximizeKey) { applyChanges() }
-                    }
-                }
-
-                LabeledContent("Restore") {
-                    HStack {
-                        Text(tilingModifierString)
-                            .foregroundStyle(.secondary)
-                        Text("+")
-                            .foregroundStyle(.secondary)
-                        Picker("", selection: $restoreKey) {
-                            ForEach(configurableKeys) { key in
-                                Text(key.name).tag(key.rawValue)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 90)
-                        .onChange(of: restoreKey) { applyChanges() }
-                    }
-                }
-
-                LabeledContent("Center") {
-                    HStack {
-                        Text(tilingModifierString)
-                            .foregroundStyle(.secondary)
-                        Text("+")
-                            .foregroundStyle(.secondary)
-                        Picker("", selection: $centerKey) {
-                            ForEach(configurableKeys) { key in
-                                Text(key.name).tag(key.rawValue)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 90)
-                        .onChange(of: centerKey) { applyChanges() }
-                    }
-                }
+                KeyPickerRow(title: "Maximize", modifiers: tiling, key: $maximizeKey)
+                KeyPickerRow(title: "Restore", modifiers: tiling, key: $restoreKey)
+                KeyPickerRow(title: "Center", modifiers: tiling, key: $centerKey)
             }
 
             Section("Monitor Shortcuts") {
-                LabeledContent("Modifiers") {
-                    HStack(spacing: 4) {
-                        ModifierToggle(symbol: "\u{2303}", isOn: $monitorControl)
-                        ModifierToggle(symbol: "\u{2325}", isOn: $monitorOption)
-                        ModifierToggle(symbol: "\u{21E7}", isOn: $monitorShift)
-                        ModifierToggle(symbol: "\u{2318}", isOn: $monitorCommand)
-                    }
-                    .onChange(of: monitorControl) { applyChanges() }
-                    .onChange(of: monitorOption) { applyChanges() }
-                    .onChange(of: monitorShift) { applyChanges() }
-                    .onChange(of: monitorCommand) { applyChanges() }
-                }
+                LabeledContent("Modifiers") { ModifierPicker(flags: $monitor) }
 
                 LabeledContent("Move Left / Right / Up / Down") {
-                    Text("\(monitorModifierString) + \u{2190}\u{2192}\u{2191}\u{2193}")
+                    Text("\(symbols(monitor)) + \u{2190}\u{2192}\u{2191}\u{2193}")
                         .foregroundStyle(.secondary)
                 }
             }
 
-            if let error = validationError {
+            if let validationError {
                 Section {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                    Label(validationError, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                         .font(.callout)
                 }
@@ -380,6 +201,93 @@ struct ShortcutsSettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .onChange(of: tiling.rawValue) { apply() }
+        .onChange(of: monitor.rawValue) { apply() }
+        .onChange(of: maximizeKey) { apply() }
+        .onChange(of: restoreKey) { apply() }
+        .onChange(of: centerKey) { apply() }
+    }
+
+    private func validate() -> String? {
+        if tiling.isEmpty { return "Tiling shortcuts need at least one modifier." }
+        if monitor.isEmpty { return "Monitor shortcuts need at least one modifier." }
+        if tiling == monitor { return "Tiling and monitor modifiers must be different (arrow keys would conflict)." }
+        if Set([maximizeKey, restoreKey, centerKey]).count < 3 {
+            return "Maximize, Restore and Center must use different keys."
+        }
+        return nil
+    }
+
+    private func apply() {
+        validationError = validate()
+        guard validationError == nil else { return }
+
+        let settings = Settings.shared
+        settings.tilingModifiers = tiling
+        settings.monitorModifiers = monitor
+        settings.maximizeKey = maximizeKey
+        settings.restoreKey = restoreKey
+        settings.centerKey = centerKey
+        ShortcutAction.syncWithSettings()
+    }
+}
+
+private func symbols(_ flags: NSEvent.ModifierFlags) -> String {
+    var result = ""
+    if flags.contains(.control) { result += "\u{2303}" }
+    if flags.contains(.option) { result += "\u{2325}" }
+    if flags.contains(.shift) { result += "\u{21E7}" }
+    if flags.contains(.command) { result += "\u{2318}" }
+    return result
+}
+
+/// Four toggle buttons (control, option, shift, command) bound to one flag set.
+struct ModifierPicker: View {
+    @Binding var flags: NSEvent.ModifierFlags
+
+    private static let options: [(String, NSEvent.ModifierFlags)] = [
+        ("\u{2303}", .control), ("\u{2325}", .option), ("\u{21E7}", .shift), ("\u{2318}", .command),
+    ]
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Self.options, id: \.0) { symbol, flag in
+                let isOn = flags.contains(flag)
+                Button {
+                    if isOn { flags.remove(flag) } else { flags.insert(flag) }
+                } label: {
+                    Text(symbol)
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 28, height: 22)
+                }
+                .buttonStyle(.bordered)
+                .tint(isOn ? .accentColor : nil)
+                .opacity(isOn ? 1.0 : 0.5)
+            }
+        }
+    }
+}
+
+/// "Maximize   ⌥⌘ + [Return v]"
+struct KeyPickerRow: View {
+    let title: String
+    let modifiers: NSEvent.ModifierFlags
+    @Binding var key: Int
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack {
+                Text("\(symbols(modifiers)) +")
+                    .foregroundStyle(.secondary)
+                Picker("", selection: $key) {
+                    ForEach(configurableKeys) { option in
+                        Text(option.name).tag(option.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 90)
+            }
+        }
     }
 }
 

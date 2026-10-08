@@ -1,38 +1,24 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class PreferencesWindowController {
     static let shared = PreferencesWindowController()
 
     private var window: NSWindow?
 
-    private init() {}
-
     func showPreferences() {
-        if let window = window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
-            return
+        if window == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: PreferencesView()))
+            window.title = "MacTiler Preferences"
+            window.styleMask = [.titled, .closable, .resizable]
+            window.contentMinSize = NSSize(width: 460, height: 380)
+            window.center()
+            window.setFrameAutosaveName("PreferencesWindow")
+            window.isReleasedWhenClosed = false
+            self.window = window
         }
-
-        let preferencesView = PreferencesView()
-        let hostingController = NSHostingController(rootView: preferencesView)
-
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "MacTiler Preferences"
-        window.styleMask = [.titled, .closable, .resizable]
-        window.contentMinSize = NSSize(width: 460, height: 380)
-        window.center()
-        window.setFrameAutosaveName("PreferencesWindow")
-        window.isReleasedWhenClosed = false
-
-        self.window = window
-
-        window.makeKeyAndOrderFront(nil)
+        window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
-    }
-
-    func closePreferences() {
-        window?.close()
     }
 }

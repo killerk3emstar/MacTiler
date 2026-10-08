@@ -1,114 +1,106 @@
 import AppKit
 import Carbon.HIToolbox
+import MacTilerCore
+import Observation
 import ServiceManagement
 
+/// The single source of truth for preferences. Every property persists to
+/// UserDefaults on write; the Preferences window binds to it directly.
+@MainActor
+@Observable
 final class Settings {
     static let shared = Settings()
 
-    private let defaults = UserDefaults.standard
+    @ObservationIgnored private let defaults = UserDefaults.standard
 
-    private enum Keys {
-        static let windowGap = "windowGap"
-        static let launchAtLogin = "launchAtLogin"
-        static let minimizeEnabled = "minimizeEnabled"
-        static let restoreSizeOnUntile = "restoreSizeOnUntile"
-        static let animationsEnabled = "animationsEnabled"
-        static let tilingModifiers = "tilingModifiers"
-        static let monitorModifiers = "monitorModifiers"
-        static let maximizeKey = "maximizeKey"
-        static let restoreKey = "restoreKey"
-        static let centerKey = "centerKey"
-        static let fractionQuarter = "fractionQuarter"
-        static let fractionThird = "fractionThird"
-        static let fractionTwoThirds = "fractionTwoThirds"
-        static let fractionThreeQuarters = "fractionThreeQuarters"
+    private enum Key: String {
+        case windowGap, minimizeEnabled, restoreSizeOnUntile, animationsEnabled
+        case tilingModifiers, monitorModifiers, maximizeKey, restoreKey, centerKey
+        case fractionQuarter, fractionThird, fractionTwoThirds, fractionThreeQuarters
     }
 
-    private init() {}
+    var windowGap: CGFloat { didSet { save(Double(windowGap), .windowGap) } }
+    var minimizeEnabled: Bool { didSet { save(minimizeEnabled, .minimizeEnabled) } }
+    var restoreSizeOnUntile: Bool { didSet { save(restoreSizeOnUntile, .restoreSizeOnUntile) } }
+    var animationsEnabled: Bool { didSet { save(animationsEnabled, .animationsEnabled) } }
 
-    var windowGap: CGFloat {
-        get { CGFloat(defaults.double(forKey: Keys.windowGap)) }
-        set { defaults.set(Double(newValue), forKey: Keys.windowGap) }
-    }
-
-    var launchAtLogin: Bool {
-        get { defaults.bool(forKey: Keys.launchAtLogin) }
-        set {
-            defaults.set(newValue, forKey: Keys.launchAtLogin)
-            updateLaunchAtLogin(newValue)
+    /// Extra widths to cycle through besides 1/2, which is always on.
+    var extraFractions: Set<WidthFraction> {
+        didSet {
+            for (fraction, key) in Self.fractionKeys {
+                save(extraFractions.contains(fraction), key)
+            }
         }
     }
 
-    var minimizeEnabled: Bool {
-        get { defaults.object(forKey: Keys.minimizeEnabled) == nil ? true : defaults.bool(forKey: Keys.minimizeEnabled) }
-        set { defaults.set(newValue, forKey: Keys.minimizeEnabled) }
+    /// Modifiers for snap/maximize/restore/center. Arrows are fixed.
+    var tilingModifiers: NSEvent.ModifierFlags { didSet { save(Self.carbon(tilingModifiers), .tilingModifiers) } }
+    /// Modifiers for moving between monitors with the arrows.
+    var monitorModifiers: NSEvent.ModifierFlags { didSet { save(Self.carbon(monitorModifiers), .monitorModifiers) } }
+    /// Carbon key codes for the configurable keys.
+    var maximizeKey: Int { didSet { save(maximizeKey, .maximizeKey) } }
+    var restoreKey: Int { didSet { save(restoreKey, .restoreKey) } }
+    var centerKey: Int { didSet { save(centerKey, .centerKey) } }
+
+    private static let fractionKeys: [(WidthFraction, Key)] = [
+        (.quarter, .fractionQuarter), (.third, .fractionThird),
+        (.twoThirds, .fractionTwoThirds), (.threeQuarters, .fractionThreeQuarters),
+    ]
+
+    private init() {
+        let d = UserDefaults.standard
+        func bool(_ key: Key, _ fallback: Bool) -> Bool { d.object(forKey: key.rawValue) as? Bool ?? fallback }
+        func int(_ key: Key, _ fallback: Int) -> Int { d.object(forKey: key.rawValue) as? Int ?? fallback }
+
+        windowGap = CGFloat(d.double(forKey: Key.windowGap.rawValue))
+        minimizeEnabled = bool(.minimizeEnabled, true)
+        restoreSizeOnUntile = bool(.restoreSizeOnUntile, false)
+        animationsEnabled = bool(.animationsEnabled, true)
+        extraFractions = Set(Self.fractionKeys.filter { bool($0.1, false) }.map(\.0))
+        tilingModifiers = Self.modifiers(fromCarbon: int(.tilingModifiers, cmdKey | optionKey))
+        monitorModifiers = Self.modifiers(fromCarbon: int(.monitorModifiers, controlKey | cmdKey | optionKey))
+        maximizeKey = int(.maximizeKey, kVK_Return)
+        restoreKey = int(.restoreKey, kVK_Delete)
+        centerKey = int(.centerKey, kVK_ANSI_C)
     }
 
-    var restoreSizeOnUntile: Bool {
-        get { defaults.bool(forKey: Keys.restoreSizeOnUntile) }
-        set { defaults.set(newValue, forKey: Keys.restoreSizeOnUntile) }
-    }
-
-    var animationsEnabled: Bool {
-        get { defaults.object(forKey: Keys.animationsEnabled) == nil ? true : defaults.bool(forKey: Keys.animationsEnabled) }
-        set { defaults.set(newValue, forKey: Keys.animationsEnabled) }
-    }
-
-    // MARK: - Width fractions
-
-    /// Sorted list of enabled fractions (1/2 always included)
+    /// Sorted widths for cycling, 1/2 always included.
     var enabledWidthFractions: [WidthFraction] {
-        var result: [WidthFraction] = [.half]
-        if defaults.bool(forKey: Keys.fractionQuarter) { result.append(.quarter) }
-        if defaults.bool(forKey: Keys.fractionThird) { result.append(.third) }
-        if defaults.bool(forKey: Keys.fractionTwoThirds) { result.append(.twoThirds) }
-        if defaults.bool(forKey: Keys.fractionThreeQuarters) { result.append(.threeQuarters) }
-        return result.sorted()
+        (extraFractions.union([.half])).sorted()
     }
 
-    // MARK: - Shortcut modifier groups
+    // MARK: - Launch at login
 
-    // Stored as carbon Int for reliable UserDefaults round-trip.
-    // cmdKey=256, optionKey=2048, controlKey=4096, shiftKey=512
-    private static let defaultTilingCarbon = cmdKey | optionKey           // 2304
-    private static let defaultMonitorCarbon = controlKey | cmdKey | optionKey  // 6400
-
-    var tilingModifiers: NSEvent.ModifierFlags {
+    /// Read from the system, not stored: the user can change it in
+    /// System Settings > General > Login Items behind our back.
+    var launchAtLogin: Bool {
         get {
-            let carbon = defaults.object(forKey: Keys.tilingModifiers) as? Int ?? Settings.defaultTilingCarbon
-            return Self.carbonToModifiers(carbon)
+            access(keyPath: \.launchAtLogin)
+            return SMAppService.mainApp.status == .enabled
         }
-        set { defaults.set(Self.modifiersToCarbon(newValue), forKey: Keys.tilingModifiers) }
-    }
-
-    var monitorModifiers: NSEvent.ModifierFlags {
-        get {
-            let carbon = defaults.object(forKey: Keys.monitorModifiers) as? Int ?? Settings.defaultMonitorCarbon
-            return Self.carbonToModifiers(carbon)
+        set {
+            withMutation(keyPath: \.launchAtLogin) {
+                do {
+                    if newValue {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                } catch {
+                    Log.error("Failed to update launch at login: \(error)")
+                }
+            }
         }
-        set { defaults.set(Self.modifiersToCarbon(newValue), forKey: Keys.monitorModifiers) }
     }
 
-    // Key raw values (Carbon key codes)
-    // Default: Return = 36, Delete = 51, C = 8
-    var maximizeKey: Int {
-        get { defaults.object(forKey: Keys.maximizeKey) as? Int ?? kVK_Return }
-        set { defaults.set(newValue, forKey: Keys.maximizeKey) }
+    // MARK: - Persistence
+
+    private func save(_ value: Any, _ key: Key) {
+        defaults.set(value, forKey: key.rawValue)
     }
 
-    var restoreKey: Int {
-        get { defaults.object(forKey: Keys.restoreKey) as? Int ?? kVK_Delete }
-        set { defaults.set(newValue, forKey: Keys.restoreKey) }
-    }
-
-    var centerKey: Int {
-        get { defaults.object(forKey: Keys.centerKey) as? Int ?? kVK_ANSI_C }
-        set { defaults.set(newValue, forKey: Keys.centerKey) }
-    }
-
-    // MARK: - Carbon ↔ NSEvent.ModifierFlags conversion
-
-    static func modifiersToCarbon(_ flags: NSEvent.ModifierFlags) -> Int {
+    // Modifiers are stored as Carbon flags (cmdKey, optionKey, ...) for a stable integer format.
+    private static func carbon(_ flags: NSEvent.ModifierFlags) -> Int {
         var carbon = 0
         if flags.contains(.control) { carbon |= controlKey }
         if flags.contains(.option) { carbon |= optionKey }
@@ -117,24 +109,12 @@ final class Settings {
         return carbon
     }
 
-    static func carbonToModifiers(_ carbon: Int) -> NSEvent.ModifierFlags {
+    private static func modifiers(fromCarbon carbon: Int) -> NSEvent.ModifierFlags {
         var flags: NSEvent.ModifierFlags = []
-        if carbon & controlKey == controlKey { flags.insert(.control) }
-        if carbon & optionKey == optionKey { flags.insert(.option) }
-        if carbon & shiftKey == shiftKey { flags.insert(.shift) }
-        if carbon & cmdKey == cmdKey { flags.insert(.command) }
+        if carbon & controlKey != 0 { flags.insert(.control) }
+        if carbon & optionKey != 0 { flags.insert(.option) }
+        if carbon & shiftKey != 0 { flags.insert(.shift) }
+        if carbon & cmdKey != 0 { flags.insert(.command) }
         return flags
-    }
-
-    func updateLaunchAtLogin(_ enabled: Bool) {
-        do {
-            if enabled {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
-        } catch {
-            Logger.error("Failed to update launch at login: \(error)")
-        }
     }
 }
