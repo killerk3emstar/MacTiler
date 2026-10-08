@@ -9,6 +9,8 @@ Unlike most macOS tilers (Rectangle, Magnet) which only cycle through fixed size
 
 ## Demo
 
+https://github.com/user-attachments/assets/b1570a6d-f290-4372-a1f7-2dabf3f5b749
+
 
 ## Why this exists
 
