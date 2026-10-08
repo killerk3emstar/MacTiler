@@ -14,7 +14,7 @@ final class Settings {
     @ObservationIgnored private let defaults = UserDefaults.standard
 
     private enum Key: String {
-        case windowGap, minimizeEnabled, restoreSizeOnUntile, animationsEnabled
+        case windowGap, minimizeEnabled, restoreSizeOnUntile, animationsEnabled, showMenuBarIcon
         case tilingModifiers, monitorModifiers, maximizeKey, restoreKey, centerKey
         case fractionQuarter, fractionThird, fractionTwoThirds, fractionThreeQuarters
     }
@@ -23,6 +23,8 @@ final class Settings {
     var minimizeEnabled: Bool { didSet { save(minimizeEnabled, .minimizeEnabled) } }
     var restoreSizeOnUntile: Bool { didSet { save(restoreSizeOnUntile, .restoreSizeOnUntile) } }
     var animationsEnabled: Bool { didSet { save(animationsEnabled, .animationsEnabled) } }
+    /// When off, the app has no visible UI. Launching it again opens Preferences.
+    var showMenuBarIcon: Bool { didSet { save(showMenuBarIcon, .showMenuBarIcon) } }
 
     /// Extra widths to cycle through besides 1/2, which is always on.
     var extraFractions: Set<WidthFraction> {
@@ -49,6 +51,8 @@ final class Settings {
 
     private init() {
         let d = UserDefaults.standard
+        Self.migrateLegacyKeys(d)
+
         func bool(_ key: Key, _ fallback: Bool) -> Bool { d.object(forKey: key.rawValue) as? Bool ?? fallback }
         func int(_ key: Key, _ fallback: Int) -> Int { d.object(forKey: key.rawValue) as? Int ?? fallback }
 
@@ -56,6 +60,7 @@ final class Settings {
         minimizeEnabled = bool(.minimizeEnabled, true)
         restoreSizeOnUntile = bool(.restoreSizeOnUntile, false)
         animationsEnabled = bool(.animationsEnabled, true)
+        showMenuBarIcon = bool(.showMenuBarIcon, true)
         extraFractions = Set(Self.fractionKeys.filter { bool($0.1, false) }.map(\.0))
         tilingModifiers = Self.modifiers(fromCarbon: int(.tilingModifiers, cmdKey | optionKey))
         monitorModifiers = Self.modifiers(fromCarbon: int(.monitorModifiers, controlKey | cmdKey | optionKey))
@@ -94,6 +99,19 @@ final class Settings {
     }
 
     // MARK: - Persistence
+
+    /// Some pre-release builds stored widths as "fraction_quarter" etc.
+    /// Carry those over once so nobody loses their width cycle.
+    private static func migrateLegacyKeys(_ d: UserDefaults) {
+        for (fraction, key) in fractionKeys {
+            let legacy = "fraction_\(fraction.rawValue)"
+            guard let value = d.object(forKey: legacy) else { continue }
+            if d.object(forKey: key.rawValue) == nil {
+                d.set(value, forKey: key.rawValue)
+            }
+            d.removeObject(forKey: legacy)
+        }
+    }
 
     private func save(_ value: Any, _ key: Key) {
         defaults.set(value, forKey: key.rawValue)

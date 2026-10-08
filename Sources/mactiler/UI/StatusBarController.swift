@@ -5,12 +5,42 @@ import KeyboardShortcuts
 final class StatusBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var accessibilityItem: NSMenuItem?
+    private var visibilityObservation: NSKeyValueObservation?
 
     func setup() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "rectangle.split.2x2", accessibilityDescription: "MacTiler")
         item.menu = makeMenu()
+        // Cmd-dragging the icon out of the menu bar hides it, same as the Preferences toggle
+        item.behavior = .removalAllowed
+        item.isVisible = Settings.shared.showMenuBarIcon
         statusItem = item
+
+        visibilityObservation = item.observe(\.isVisible, options: [.new]) { _, change in
+            guard let visible = change.newValue else { return }
+            MainActor.assumeIsolated {
+                if Settings.shared.showMenuBarIcon != visible {
+                    Settings.shared.showMenuBarIcon = visible
+                }
+            }
+        }
+        followIconSetting()
+    }
+
+    /// Re-applies the setting whenever it changes in Preferences.
+    private func followIconSetting() {
+        withObservationTracking {
+            _ = Settings.shared.showMenuBarIcon
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                let visible = Settings.shared.showMenuBarIcon
+                if self.statusItem?.isVisible != visible {
+                    self.statusItem?.isVisible = visible
+                }
+                self.followIconSetting()
+            }
+        }
     }
 
     private func makeMenu() -> NSMenu {

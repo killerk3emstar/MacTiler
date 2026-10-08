@@ -40,6 +40,13 @@ struct GeneralSettingsView: View {
         Form {
             Section {
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
+                Toggle("Show menu bar icon", isOn: $settings.showMenuBarIcon)
+            } footer: {
+                if !settings.showMenuBarIcon {
+                    Text("To get back here, open MacTiler again from Spotlight or Finder.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Behavior") {
