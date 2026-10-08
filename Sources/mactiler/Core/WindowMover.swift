@@ -59,6 +59,11 @@ final class WindowMover: NSObject {
     /// Windows we are moving or waiting to settle. Move events for them are ours, not the user's.
     private var busy: Set<CGWindowID> = []
 
+    /// Shows a sample overlay animation around `frame` (AX coordinates).
+    func previewOverlay(around frame: CGRect) {
+        overlay.preview(around: frame)
+    }
+
     func isBusy(_ id: CGWindowID) -> Bool {
         busy.contains(id)
     }
@@ -108,7 +113,7 @@ final class WindowMover: NSObject {
                 current = CGRect(origin: origin, size: windowSize)
             }
             mode = .glass(windowSize: windowSize)
-            overlay.show(at: start, style: Settings.shared.overlayStyle)
+            overlay.show(at: start)
         } else {
             mode = .live
         }

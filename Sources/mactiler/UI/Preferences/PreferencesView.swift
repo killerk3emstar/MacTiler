@@ -33,7 +33,17 @@ struct GeneralSettingsView: View {
                         Text(style.title).tag(style)
                     }
                 }
-                .disabled(!settings.animationsEnabled || settings.resizeAnimation != .glass)
+                .disabled(!overlayEnabled)
+                PercentSlider(title: "Overlay opacity", value: $settings.overlayOpacity, range: 0.2...1)
+                    .disabled(!overlayEnabled)
+                PercentSlider(title: "Overlay cover", value: $settings.overlayTint, range: 0...1)
+                    .disabled(!overlayEnabled || settings.overlayStyle == .outline)
+                    .help("Solid color over the blur. Higher hides the window underneath better while it resizes.")
+                HStack {
+                    Spacer()
+                    Button("Preview") { previewOverlay() }
+                        .disabled(!overlayEnabled)
+                }
             }
 
             Section("Tiling Sizes") {
@@ -62,6 +72,16 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+    }
+
+    private var overlayEnabled: Bool {
+        settings.animationsEnabled && settings.resizeAnimation == .glass
+    }
+
+    /// Plays the overlay over the Preferences window itself.
+    private func previewOverlay() {
+        guard let window = NSApp.keyWindow, let primary = NSScreen.screens.first else { return }
+        WindowMover.shared.previewOverlay(around: Geometry.toAX(window.frame, primaryHeight: primary.frame.height))
     }
 
     private func fractionBinding(_ fraction: WidthFraction) -> Binding<Bool> {
@@ -227,6 +247,25 @@ private func symbols(_ flags: NSEvent.ModifierFlags) -> String {
     if flags.contains(.shift) { result += "\u{21E7}" }
     if flags.contains(.command) { result += "\u{2318}" }
     return result
+}
+
+/// Slider with a percentage readout.
+struct PercentSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack {
+                Slider(value: $value, in: range)
+                Text("\(Int((value * 100).rounded()))%")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: 40, alignment: .trailing)
+            }
+        }
+    }
 }
 
 /// Four toggle buttons (control, option, shift, command) bound to one flag set.
