@@ -28,17 +28,13 @@ enum OverlayStyle: String, CaseIterable {
 final class ResizeOverlay {
     private static let cornerRadius: CGFloat = 12
 
-    /// Look settings. `opacity` is the alpha of the whole overlay; `tint` is
-    /// how much solid window-background color covers the blur, which hides
-    /// the window underneath better (it still has its old size mid-animation).
+    /// Look settings. `opacity` is the alpha of the whole overlay.
     struct Appearance: Equatable {
         var style: OverlayStyle
         var opacity: Double
-        var tint: Double
 
         @MainActor static var current: Appearance {
-            let settings = Settings.shared
-            return Appearance(style: settings.overlayStyle, opacity: settings.overlayOpacity, tint: settings.overlayTint)
+            Appearance(style: Settings.shared.overlayStyle, opacity: Settings.shared.overlayOpacity)
         }
     }
 
@@ -60,7 +56,7 @@ final class ResizeOverlay {
     /// Shows the overlay at `frame` (AX coordinates).
     func show(at frame: CGRect, appearance: Appearance = .current) {
         if self.appearance != appearance {
-            panel.contentView = Self.makeContent(appearance.style, tint: appearance.tint)
+            panel.contentView = Self.makeContent(appearance.style)
             self.appearance = appearance
         }
         // Zero-duration group overrides a fade-out that may still be running
@@ -114,19 +110,16 @@ final class ResizeOverlay {
         }
     }
 
-    private static func makeContent(_ style: OverlayStyle, tint: Double) -> NSView {
-        let tintColor = NSColor.windowBackgroundColor.withAlphaComponent(tint)
-
+    private static func makeContent(_ style: OverlayStyle) -> NSView {
         switch style {
         case .liquidGlass, .clearGlass:
             if #available(macOS 26, *) {
                 let glass = NSGlassEffectView()
                 glass.style = style == .clearGlass ? .clear : .regular
                 glass.cornerRadius = cornerRadius
-                if tint > 0 { glass.tintColor = tintColor }
                 return glass
             }
-            return makeContent(.frosted, tint: tint)
+            return makeContent(.frosted)
 
         case .frosted:
             let blur = NSVisualEffectView()
@@ -134,19 +127,12 @@ final class ResizeOverlay {
             blur.blendingMode = .behindWindow
             blur.state = .active
             rounded(blur, border: NSColor.white.withAlphaComponent(0.25), width: 1)
-
-            let cover = NSView()
-            cover.wantsLayer = true
-            cover.layer?.backgroundColor = tintColor.cgColor
-            cover.autoresizingMask = [.width, .height]
-            blur.addSubview(cover)
             return blur
 
         case .accent:
             let view = NSView()
             rounded(view, border: .controlAccentColor, width: 2)
-            let fill = 0.2 + 0.8 * tint
-            view.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(fill).cgColor
+            view.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.2).cgColor
             return view
 
         case .outline:

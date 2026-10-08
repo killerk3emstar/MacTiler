@@ -36,9 +36,6 @@ struct GeneralSettingsView: View {
                 .disabled(!overlayEnabled)
                 PercentSlider(title: "Overlay opacity", value: $settings.overlayOpacity, range: 0.2...1)
                     .disabled(!overlayEnabled)
-                PercentSlider(title: "Overlay cover", value: $settings.overlayTint, range: 0...1)
-                    .disabled(!overlayEnabled || settings.overlayStyle == .outline)
-                    .help("Solid color over the blur. Higher hides the window underneath better while it resizes.")
                 HStack {
                     Spacer()
                     Button("Preview") { previewOverlay() }

@@ -22,7 +22,10 @@ final class WindowManager {
 
     func start() {
         observer.onUserDragged = { [weak self] window in self?.userDragged(window) }
-        observer.onClosed = { [weak self] id in self?.states[id] = nil }
+        observer.onClosed = { [weak self] id in
+            self?.states[id] = nil
+            self?.mover.windowClosed(id)
+        }
         observer.start()
 
         NotificationCenter.default.addObserver(

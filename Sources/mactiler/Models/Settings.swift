@@ -14,7 +14,7 @@ final class Settings {
     @ObservationIgnored private let defaults = UserDefaults.standard
 
     private enum Key: String {
-        case windowGap, minimizeEnabled, restoreSizeOnUntile, animationsEnabled, showMenuBarIcon, resizeAnimation, overlayStyle, overlayOpacity, overlayTint
+        case windowGap, minimizeEnabled, restoreSizeOnUntile, animationsEnabled, showMenuBarIcon, resizeAnimation, overlayStyle, overlayOpacity
         case tilingModifiers, monitorModifiers, maximizeKey, restoreKey, centerKey
         case fractionQuarter, fractionThird, fractionTwoThirds, fractionThreeQuarters
     }
@@ -28,8 +28,6 @@ final class Settings {
     var overlayStyle: OverlayStyle { didSet { save(overlayStyle.rawValue, .overlayStyle) } }
     /// 0.2...1, alpha of the whole overlay.
     var overlayOpacity: Double { didSet { save(overlayOpacity, .overlayOpacity) } }
-    /// 0...1, solid color over the blur. Higher hides the window underneath better.
-    var overlayTint: Double { didSet { save(overlayTint, .overlayTint) } }
     /// When off, the app has no visible UI. Launching it again opens Preferences.
     var showMenuBarIcon: Bool { didSet { save(showMenuBarIcon, .showMenuBarIcon) } }
 
@@ -70,7 +68,6 @@ final class Settings {
         showMenuBarIcon = bool(.showMenuBarIcon, true)
         overlayStyle = d.string(forKey: Key.overlayStyle.rawValue).flatMap(OverlayStyle.init) ?? .frosted
         overlayOpacity = d.object(forKey: Key.overlayOpacity.rawValue) as? Double ?? 1
-        overlayTint = d.object(forKey: Key.overlayTint.rawValue) as? Double ?? 0
         resizeAnimation = d.string(forKey: Key.resizeAnimation.rawValue).flatMap(ResizeAnimation.init) ?? .glass
         extraFractions = Set(Self.fractionKeys.filter { bool($0.1, false) }.map(\.0))
         tilingModifiers = Self.modifiers(fromCarbon: int(.tilingModifiers, cmdKey | optionKey))

@@ -35,6 +35,12 @@ final class WindowMover: NSObject {
         case glass(windowSize: CGSize)
     }
 
+    /// Largest size each window has accepted when we asked for more, learned
+    /// from earlier moves. AX does not expose maximum sizes, and a growing
+    /// window is only resized at the end, so this is how the overlay knows to
+    /// stop short next time.
+    private var learnedMaxSizes: [CGWindowID: CGSize] = [:]
+
     private struct Animation {
         let window: AXWindow
         let target: CGRect
@@ -62,6 +68,10 @@ final class WindowMover: NSObject {
     /// Shows a sample overlay animation around `frame` (AX coordinates).
     func previewOverlay(around frame: CGRect) {
         overlay.preview(around: frame)
+    }
+
+    func windowClosed(_ id: CGWindowID) {
+        learnedMaxSizes[id] = nil
     }
 
     func isBusy(_ id: CGWindowID) -> Bool {
@@ -100,17 +110,28 @@ final class WindowMover: NSObject {
         window.setMessagingTimeout(AXWindow.animationTimeout)
 
         var current = start
+        var end = target
         let mode: Mode
         if start.size != target.size && Settings.shared.resizeAnimation == .glass {
             let grows = target.width >= start.width && target.height >= start.height
             var windowSize = start.size
-            if !grows {
-                // Shrink right away so the window sits inside the overlay
+            if grows {
+                // Resized at the end. Stop the overlay at a size limit seen before, if any.
+                if let max = learnedMaxSizes[window.id] {
+                    let size = CGSize(width: min(target.width, max.width), height: min(target.height, max.height))
+                    end = CGRect(origin: Geometry.anchoredOrigin(for: target, actualSize: size, anchor: anchor), size: size)
+                }
+            } else {
+                // Shrink right away so the window sits inside the overlay. This also
+                // tells us the size the app really accepts (minimum sizes), so the
+                // overlay can end exactly where the window will.
                 window.setSize(target.size)
                 windowSize = window.size ?? target.size
                 let origin = Geometry.anchoredOrigin(for: start, actualSize: windowSize, anchor: anchor)
                 window.setPosition(origin)
                 current = CGRect(origin: origin, size: windowSize)
+                end = CGRect(origin: Geometry.anchoredOrigin(for: target, actualSize: windowSize, anchor: anchor),
+                             size: windowSize)
             }
             mode = .glass(windowSize: windowSize)
             overlay.show(at: start)
@@ -119,7 +140,7 @@ final class WindowMover: NSObject {
         }
 
         animation = Animation(window: window, target: target, anchor: anchor,
-                              curve: FrameAnimation(from: start, to: target, duration: Self.duration),
+                              curve: FrameAnimation(from: start, to: end, duration: Self.duration),
                               mode: mode, startTime: CACurrentMediaTime(), enhancedUIWasOn: enhancedUIWasOn,
                               generation: generation, completion: completion, current: current)
 
@@ -140,6 +161,12 @@ final class WindowMover: NSObject {
                generation: animation.generation, completion: animation.completion)
         animation.window.restoreEnhancedUserInterface(wasOn: animation.enhancedUIWasOn)
         if case .glass = animation.mode {
+            // If the app refused the size (a maximum we did not know about),
+            // snap the overlay onto the real frame before it fades, and remember.
+            if let actual = animation.window.frame, actual != animation.curve.to {
+                overlay.setFrame(actual)
+                learnLimit(of: animation.window.id, asked: animation.target.size, got: actual.size)
+            }
             overlay.dismiss()
         }
     }
@@ -186,6 +213,14 @@ final class WindowMover: NSObject {
                 self.animation?.windowFrozen = true
             }
         }
+    }
+
+    private func learnLimit(of id: CGWindowID, asked: CGSize, got: CGSize) {
+        guard got.width < asked.width - 1 || got.height < asked.height - 1 else { return }
+        var max = learnedMaxSizes[id] ?? CGSize(width: CGFloat.infinity, height: CGFloat.infinity)
+        if got.width < asked.width - 1 { max.width = got.width }
+        if got.height < asked.height - 1 { max.height = got.height }
+        learnedMaxSizes[id] = max
     }
 
     private func stopDisplayLink() {
