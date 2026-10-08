@@ -17,7 +17,13 @@ BIN_DIR=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
 echo "Creating app bundle..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/mactiler" "$APP/Contents/MacOS/$BIN_NAME"
+# SwiftPM records the deployment target as the SDK version (14.0). macOS
+# gives apps linked against an older SDK the old look, so without this the
+# app misses the macOS 26+ design (Liquid Glass, new window controls).
+# Stamp the real SDK version; the minimum macOS version stays 14.0.
+SDK_VERSION=$(xcrun --show-sdk-version)
+vtool -set-build-version macos 14.0 "$SDK_VERSION" -replace \
+    -output "$APP/Contents/MacOS/$BIN_NAME" "$BIN_DIR/mactiler"
 cp Sources/mactiler/App/Info.plist "$APP/Contents/"
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
