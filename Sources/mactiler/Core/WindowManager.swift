@@ -40,8 +40,8 @@ final class WindowManager {
         if direction == .up, settings.minimizeEnabled, AXWindow.focused() == nil,
            let minimized = AXWindow.lastMinimizedOfFrontmostApp() {
             Log.info("No focused window, unminimizing \(minimized.id)")
+            // No raise here: raising during the Dock's restore animation makes the window flash
             minimized.unminimize()
-            minimized.raise()
             return
         }
 

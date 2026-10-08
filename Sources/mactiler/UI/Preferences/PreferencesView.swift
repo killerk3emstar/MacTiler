@@ -2,37 +2,6 @@ import SwiftUI
 import Carbon.HIToolbox
 import MacTilerCore
 
-struct PreferencesView: View {
-    @State private var selectedTab = 0
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $selectedTab) {
-                Text("General").tag(0)
-                Text("Shortcuts").tag(1)
-                Text("About").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 60)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            Group {
-                switch selectedTab {
-                case 0: GeneralSettingsView()
-                case 1: ShortcutsSettingsView()
-                default: AboutView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(minWidth: 460, minHeight: 380)
-    }
-}
-
 struct GeneralSettingsView: View {
     @Bindable private var settings = Settings.shared
 
@@ -53,6 +22,18 @@ struct GeneralSettingsView: View {
                 Toggle("Enable minimize/unminimize", isOn: $settings.minimizeEnabled)
                 Toggle("Restore original size when dragged out of a tile", isOn: $settings.restoreSizeOnUntile)
                 Toggle("Animate window transitions", isOn: $settings.animationsEnabled)
+                Picker("Resize animation", selection: $settings.resizeAnimation) {
+                    ForEach(ResizeAnimation.allCases, id: \.self) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .disabled(!settings.animationsEnabled)
+                Picker("Overlay style", selection: $settings.overlayStyle) {
+                    ForEach(OverlayStyle.allCases, id: \.self) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .disabled(!settings.animationsEnabled || settings.resizeAnimation != .glass)
             }
 
             Section("Tiling Sizes") {

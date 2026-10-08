@@ -5,39 +5,55 @@ import QuartzCore
 /// Moves windows to target frames, animated or not, and reports where they
 /// really ended up once the app has settled.
 ///
-/// Animation runs on the target screen's display link, so it ticks at the
-/// display's refresh rate (up to 120 Hz on ProMotion) instead of a fixed timer.
-/// Each tick writes one interpolated frame in the order described by
-/// `FrameWritePlan`. If the app is too slow to keep up, the animation is
-/// dropped and the window jumps to the target, which looks better than a
-/// stutter.
+/// Animations tick on the target screen's display link (up to 120 Hz) with
+/// time-based progress. Two modes:
+/// - Live: the real window gets every interpolated frame, written in the order
+///   described by `FrameWritePlan`. Used when the size does not change, since
+///   moving a window is cheap for any app.
+/// - Glass: used when the size changes. Every resize makes the app relayout,
+///   which heavy apps cannot do at display rate, so resizing the real window
+///   per frame stutters. Instead a `ResizeOverlay` takes the interpolated
+///   frames and the real window keeps one size while riding along, pinned to
+///   the overlay's anchored corner (moving is cheap). The window is resized
+///   once: at the start when shrinking, at the end when growing.
 @MainActor
 final class WindowMover: NSObject {
     static let shared = WindowMover()
 
     static let duration: TimeInterval = 0.2
-    /// An AX step slower than this is a dropped frame. Two in a row means the
-    /// app cannot keep up, so the animation is abandoned.
+    /// An AX write slower than this is a dropped frame. Two in a row means the
+    /// app cannot keep up: live mode jumps to the end, glass mode stops moving
+    /// the window and lets the overlay finish alone.
     private static let slowStepThreshold: CFTimeInterval = 0.05
     /// Time to let an app finish its own layout before reading the final frame.
     /// Catalyst and SwiftUI apps (Messages) often apply sizes a few frames late.
     private static let settleDelay: Duration = .milliseconds(150)
+
+    private enum Mode {
+        case live
+        /// `windowSize` is the size the window keeps while riding the overlay.
+        case glass(windowSize: CGSize)
+    }
 
     private struct Animation {
         let window: AXWindow
         let target: CGRect
         let anchor: AnchorEdges
         let curve: FrameAnimation
+        let mode: Mode
         let startTime: CFTimeInterval
         let enhancedUIWasOn: Bool
         let generation: Int
         let completion: (CGRect) -> Void
+        /// Last frame written to the real window.
         var current: CGRect
         var slowSteps = 0
+        var windowFrozen = false
     }
 
     private var animation: Animation?
     private var displayLink: CADisplayLink?
+    private let overlay = ResizeOverlay()
     /// Bumped per move. A pending settle check only reports if it is still the latest.
     private var generations: [CGWindowID: Int] = [:]
     /// Windows we are moving or waiting to settle. Move events for them are ours, not the user's.
@@ -78,10 +94,29 @@ final class WindowMover: NSObject {
         let enhancedUIWasOn = window.disableEnhancedUserInterface()
         window.setMessagingTimeout(AXWindow.animationTimeout)
 
+        var current = start
+        let mode: Mode
+        if start.size != target.size && Settings.shared.resizeAnimation == .glass {
+            let grows = target.width >= start.width && target.height >= start.height
+            var windowSize = start.size
+            if !grows {
+                // Shrink right away so the window sits inside the overlay
+                window.setSize(target.size)
+                windowSize = window.size ?? target.size
+                let origin = Geometry.anchoredOrigin(for: start, actualSize: windowSize, anchor: anchor)
+                window.setPosition(origin)
+                current = CGRect(origin: origin, size: windowSize)
+            }
+            mode = .glass(windowSize: windowSize)
+            overlay.show(at: start, style: Settings.shared.overlayStyle)
+        } else {
+            mode = .live
+        }
+
         animation = Animation(window: window, target: target, anchor: anchor,
                               curve: FrameAnimation(from: start, to: target, duration: Self.duration),
-                              startTime: CACurrentMediaTime(), enhancedUIWasOn: enhancedUIWasOn,
-                              generation: generation, completion: completion, current: start)
+                              mode: mode, startTime: CACurrentMediaTime(), enhancedUIWasOn: enhancedUIWasOn,
+                              generation: generation, completion: completion, current: current)
 
         let link = screen.displayLink(target: self, selector: #selector(tick(_:)))
         let maxRate = Float(screen.maximumFramesPerSecond)
@@ -99,6 +134,9 @@ final class WindowMover: NSObject {
         settle(animation.window, at: animation.target, anchor: animation.anchor,
                generation: animation.generation, completion: animation.completion)
         animation.window.restoreEnhancedUserInterface(wasOn: animation.enhancedUIWasOn)
+        if case .glass = animation.mode {
+            overlay.dismiss()
+        }
     }
 
     @objc private func tick(_ link: CADisplayLink) {
@@ -113,18 +151,35 @@ final class WindowMover: NSObject {
             return
         }
 
-        let next = animation.curve.frame(at: elapsed)
-        guard next != animation.current else { return }
-
+        let frame = animation.curve.frame(at: elapsed)
         let stepStart = CACurrentMediaTime()
-        animation.current = animation.window.apply(next, from: animation.current, anchor: animation.anchor)
+
+        switch animation.mode {
+        case .live:
+            guard frame != animation.current else { return }
+            animation.current = animation.window.apply(frame, from: animation.current, anchor: animation.anchor)
+
+        case .glass(let windowSize):
+            overlay.setFrame(frame)
+            let origin = Geometry.anchoredOrigin(for: frame, actualSize: windowSize, anchor: animation.anchor)
+            guard !animation.windowFrozen, origin != animation.current.origin else { break }
+            animation.window.setPosition(origin)
+            animation.current.origin = origin
+        }
+
         let wasSlow = CACurrentMediaTime() - stepStart > Self.slowStepThreshold
         animation.slowSteps = wasSlow ? animation.slowSteps + 1 : 0
         self.animation = animation
 
         if animation.slowSteps >= 2 {
-            Log.info("App too slow to animate (pid \(animation.window.pid)), jumping to target")
-            finishCurrent()
+            switch animation.mode {
+            case .live:
+                Log.info("App too slow to animate (pid \(animation.window.pid)), jumping to target")
+                finishCurrent()
+            case .glass:
+                Log.info("App too slow to follow the overlay (pid \(animation.window.pid))")
+                self.animation?.windowFrozen = true
+            }
         }
     }
 
@@ -133,10 +188,14 @@ final class WindowMover: NSObject {
         displayLink = nil
     }
 
-    /// Final exact placement, then a delayed read-back of the real frame.
+    // MARK: - Settling
+
+    /// Exact placement with AXEnhancedUserInterface off, then a delayed read-back.
     private func settle(_ window: AXWindow, at target: CGRect, anchor: AnchorEdges,
                         generation: Int, completion: @escaping (CGRect) -> Void) {
+        let enhancedUIWasOn = window.disableEnhancedUserInterface()
         window.settle(at: target, anchor: anchor)
+        window.restoreEnhancedUserInterface(wasOn: enhancedUIWasOn)
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.settleDelay)

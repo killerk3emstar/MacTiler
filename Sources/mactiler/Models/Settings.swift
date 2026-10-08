@@ -14,7 +14,7 @@ final class Settings {
     @ObservationIgnored private let defaults = UserDefaults.standard
 
     private enum Key: String {
-        case windowGap, minimizeEnabled, restoreSizeOnUntile, animationsEnabled, showMenuBarIcon
+        case windowGap, minimizeEnabled, restoreSizeOnUntile, animationsEnabled, showMenuBarIcon, resizeAnimation, overlayStyle
         case tilingModifiers, monitorModifiers, maximizeKey, restoreKey, centerKey
         case fractionQuarter, fractionThird, fractionTwoThirds, fractionThreeQuarters
     }
@@ -23,6 +23,9 @@ final class Settings {
     var minimizeEnabled: Bool { didSet { save(minimizeEnabled, .minimizeEnabled) } }
     var restoreSizeOnUntile: Bool { didSet { save(restoreSizeOnUntile, .restoreSizeOnUntile) } }
     var animationsEnabled: Bool { didSet { save(animationsEnabled, .animationsEnabled) } }
+    /// How size changes are animated. Pure moves always animate the real window.
+    var resizeAnimation: ResizeAnimation { didSet { save(resizeAnimation.rawValue, .resizeAnimation) } }
+    var overlayStyle: OverlayStyle { didSet { save(overlayStyle.rawValue, .overlayStyle) } }
     /// When off, the app has no visible UI. Launching it again opens Preferences.
     var showMenuBarIcon: Bool { didSet { save(showMenuBarIcon, .showMenuBarIcon) } }
 
@@ -61,6 +64,8 @@ final class Settings {
         restoreSizeOnUntile = bool(.restoreSizeOnUntile, false)
         animationsEnabled = bool(.animationsEnabled, true)
         showMenuBarIcon = bool(.showMenuBarIcon, true)
+        overlayStyle = d.string(forKey: Key.overlayStyle.rawValue).flatMap(OverlayStyle.init) ?? .liquidGlass
+        resizeAnimation = d.string(forKey: Key.resizeAnimation.rawValue).flatMap(ResizeAnimation.init) ?? .glass
         extraFractions = Set(Self.fractionKeys.filter { bool($0.1, false) }.map(\.0))
         tilingModifiers = Self.modifiers(fromCarbon: int(.tilingModifiers, cmdKey | optionKey))
         monitorModifiers = Self.modifiers(fromCarbon: int(.monitorModifiers, controlKey | cmdKey | optionKey))
@@ -134,5 +139,19 @@ final class Settings {
         if carbon & shiftKey != 0 { flags.insert(.shift) }
         if carbon & cmdKey != 0 { flags.insert(.command) }
         return flags
+    }
+}
+
+enum ResizeAnimation: String, CaseIterable {
+    /// Smooth overlay animation, the real window resizes once. Works with any app.
+    case glass
+    /// Resize the real window every frame. Smooth only for light apps.
+    case live
+
+    var title: String {
+        switch self {
+        case .glass: return "Glass (smooth with any app)"
+        case .live: return "Live (resizes the real window)"
+        }
     }
 }
