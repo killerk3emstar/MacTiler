@@ -1,7 +1,15 @@
+import CoreGraphics
+
 extension SnapPosition {
     /// The heart of MacTiler: what a direction key does from this state.
     /// See the transition table in the README.
-    public func transition(direction: SnapDirection, enabledFractions: [WidthFraction]) -> SnapAction {
+    ///
+    /// `minimumFraction` is the window's minimum width as a fraction of the
+    /// tile area on its screen, if known. Widths below it all look the same
+    /// (the window stays at its minimum), so width cycling skips steps that
+    /// would not visibly change anything.
+    public func transition(direction: SnapDirection, enabledFractions: [WidthFraction],
+                           minimumFraction: CGFloat = 0) -> SnapAction {
         switch (self, direction) {
         // floating
         case (.floating, .up):    return .snapTo(.maximized)
@@ -29,8 +37,8 @@ extension SnapPosition {
 
         // tiled
         case (.tiled(let side, let width, let vertical), let dir):
-            return tiledTransition(side: side, width: width, vertical: vertical,
-                                   direction: dir, enabledFractions: enabledFractions)
+            return tiledTransition(side: side, width: width, vertical: vertical, direction: dir,
+                                   enabledFractions: enabledFractions, minimumFraction: minimumFraction)
         }
     }
 
@@ -43,7 +51,8 @@ extension SnapPosition {
     }
 
     private func tiledTransition(side: SnapSide, width: WidthFraction, vertical: VerticalSlice,
-                                 direction: SnapDirection, enabledFractions: [WidthFraction]) -> SnapAction {
+                                 direction: SnapDirection, enabledFractions: [WidthFraction],
+                                 minimumFraction: CGFloat) -> SnapAction {
         let isSame = (side == .left && direction == .left) || (side == .right && direction == .right)
         let isOpposite = (side == .left && direction == .right) || (side == .right && direction == .left)
         let otherSide: SnapSide = side == .left ? .right : .left
@@ -60,7 +69,8 @@ extension SnapPosition {
 
         // Full height: fraction cycling / restore
         if isSame {
-            guard let nextWidth = Self.nextFraction(after: width, in: enabledFractions) else {
+            guard let nextWidth = Self.nextFraction(after: width, in: enabledFractions,
+                                                    minimumFraction: minimumFraction) else {
                 return .noOp
             }
             return .snapTo(.tiled(side: side, width: nextWidth, vertical: .full))
@@ -80,12 +90,24 @@ extension SnapPosition {
         }
     }
 
-    static func nextFraction(after current: WidthFraction, in enabled: [WidthFraction]) -> WidthFraction? {
+    static func nextFraction(after current: WidthFraction, in enabled: [WidthFraction],
+                             minimumFraction: CGFloat = 0) -> WidthFraction? {
         guard enabled.count > 1 else { return nil }
+
+        // Order to try: the enabled widths after the current one, wrapping around.
+        // If the current width is no longer enabled, start at the next larger one.
+        let startIndex: Int
         if let idx = enabled.firstIndex(of: current) {
-            return enabled[(idx + 1) % enabled.count]
+            startIndex = idx + 1
+        } else {
+            startIndex = enabled.firstIndex(where: { $0 > current }) ?? 0
         }
-        // Current fraction is no longer enabled: go to the nearest larger one, or wrap
-        return enabled.first(where: { $0 > current }) ?? enabled.first
+        let candidates = (0..<enabled.count).map { enabled[(startIndex + $0) % enabled.count] }
+
+        // Skip widths that end up the same size as the current one because
+        // the window cannot get narrower than its minimum.
+        func effective(_ fraction: WidthFraction) -> CGFloat { max(fraction.value, minimumFraction) }
+        let currentWidth = effective(current)
+        return candidates.first { $0 != current && abs(effective($0) - currentWidth) > 0.005 }
     }
 }

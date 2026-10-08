@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import MacTilerCore
 
@@ -72,5 +73,37 @@ struct TransitionTests {
         #expect(BL.anchor == [.bottom])
         #expect(BR.anchor == [.right, .bottom])
         #expect(SnapPosition.bottomHalf.anchor == [.bottom])
+    }
+}
+
+/// Width cycling with a window that cannot get as narrow as some enabled widths.
+struct MinimumWidthCyclingTests {
+    private func right(_ w: WidthFraction) -> SnapPosition { .tiled(side: .right, width: w, vertical: .full) }
+    private let enabled: [WidthFraction] = [.quarter, .half, .threeQuarters]
+
+    private func next(_ from: WidthFraction, minimum: CGFloat) -> SnapAction {
+        right(from).transition(direction: .right, enabledFractions: enabled, minimumFraction: minimum)
+    }
+
+    @Test func unknownMinimumCyclesEverything() {
+        #expect(next(.half, minimum: 0) == .snapTo(right(.threeQuarters)))
+        #expect(next(.threeQuarters, minimum: 0) == .snapTo(right(.quarter)))
+        #expect(next(.quarter, minimum: 0) == .snapTo(right(.half)))
+    }
+
+    @Test func minimumAboveHalfSkipsDeadStep() {
+        // Discord on a laptop: minimum is about 0.55, so 1/4 and 1/2 look the same
+        #expect(next(.threeQuarters, minimum: 0.55) == .snapTo(right(.quarter)))
+        #expect(next(.quarter, minimum: 0.55) == .snapTo(right(.threeQuarters)))
+        #expect(next(.half, minimum: 0.55) == .snapTo(right(.threeQuarters)))
+    }
+
+    @Test func minimumBetweenQuarterAndHalf() {
+        #expect(next(.quarter, minimum: 0.3) == .snapTo(right(.half)))
+        #expect(next(.threeQuarters, minimum: 0.3) == .snapTo(right(.quarter)))
+    }
+
+    @Test func everythingBelowMinimumDoesNothing() {
+        #expect(next(.half, minimum: 0.8) == .noOp)
     }
 }

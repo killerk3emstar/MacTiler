@@ -49,7 +49,8 @@ final class WindowManager {
         }
 
         withFocusedWindow { window, position in
-            perform(position.transition(direction: direction, enabledFractions: settings.enabledWidthFractions),
+            perform(position.transition(direction: direction, enabledFractions: settings.enabledWidthFractions,
+                                        minimumFraction: minimumWidthFraction(of: window)),
                     on: window)
         }
     }
@@ -130,6 +131,15 @@ final class WindowManager {
               Geometry.hasDrifted(frame, from: state.expectedFrame) else { return }
         Log.info("Window \(window.id) moved since last snap, now floating")
         forget(window.id)
+    }
+
+    /// The window's known minimum width as a fraction of its screen's tile
+    /// area, so width cycling can skip sizes the window cannot take.
+    private func minimumWidthFraction(of window: AXWindow) -> CGFloat {
+        let minWidth = mover.sizeLimits(of: window.id).minimum.width
+        guard minWidth > 0, let frame = window.frame, let screen = Screen.containing(frame) else { return 0 }
+        let tileable = Geometry.tileableWidth(in: screen.visibleFrame, gap: settings.windowGap)
+        return tileable > 0 ? minWidth / tileable : 0
     }
 
     private func perform(_ action: SnapAction, on window: AXWindow) {

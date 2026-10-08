@@ -55,6 +55,12 @@ public enum Geometry {
         return roundedEdges(rect)
     }
 
+    /// Width that width fractions are taken of: the visible area minus the
+    /// outer gaps and the gap between two side-by-side tiles.
+    public static func tileableWidth(in visible: CGRect, gap: CGFloat) -> CGFloat {
+        visible.width - 3 * gap
+    }
+
     /// Rounds each edge to a whole point independently, so neighbouring tiles
     /// share an exact edge and apps get integer sizes (avoids 1px drift noise).
     public static func roundedEdges(_ rect: CGRect) -> CGRect {

@@ -35,11 +35,19 @@ final class WindowMover: NSObject {
         case glass(windowSize: CGSize)
     }
 
-    /// Largest size each window has accepted when we asked for more, learned
-    /// from earlier moves. AX does not expose maximum sizes, and a growing
-    /// window is only resized at the end, so this is how the overlay knows to
-    /// stop short next time.
-    private var learnedMaxSizes: [CGWindowID: CGSize] = [:]
+    /// Size limits per window, learned whenever an app refuses a size we ask
+    /// for. AX does not expose minimum or maximum sizes. Minimums let width
+    /// cycling skip steps that would not change anything; maximums let the
+    /// overlay stop where a growing window will (it is resized only at the end).
+    struct SizeLimits {
+        var minimum = CGSize.zero
+        var maximum = CGSize(width: CGFloat.infinity, height: CGFloat.infinity)
+    }
+    private var limits: [CGWindowID: SizeLimits] = [:]
+
+    func sizeLimits(of id: CGWindowID) -> SizeLimits {
+        limits[id] ?? SizeLimits()
+    }
 
     private struct Animation {
         let window: AXWindow
@@ -71,7 +79,7 @@ final class WindowMover: NSObject {
     }
 
     func windowClosed(_ id: CGWindowID) {
-        learnedMaxSizes[id] = nil
+        limits[id] = nil
     }
 
     func isBusy(_ id: CGWindowID) -> Bool {
@@ -117,7 +125,7 @@ final class WindowMover: NSObject {
             var windowSize = start.size
             if grows {
                 // Resized at the end. Stop the overlay at a size limit seen before, if any.
-                if let max = learnedMaxSizes[window.id] {
+                if let max = limits[window.id]?.maximum, max.width < target.width || max.height < target.height {
                     let size = CGSize(width: min(target.width, max.width), height: min(target.height, max.height))
                     end = CGRect(origin: Geometry.anchoredOrigin(for: target, actualSize: size, anchor: anchor), size: size)
                 }
@@ -127,6 +135,7 @@ final class WindowMover: NSObject {
                 // overlay can end exactly where the window will.
                 window.setSize(target.size)
                 windowSize = window.size ?? target.size
+                learnLimits(of: window.id, asked: target.size, got: windowSize)
                 let origin = Geometry.anchoredOrigin(for: start, actualSize: windowSize, anchor: anchor)
                 window.setPosition(origin)
                 current = CGRect(origin: origin, size: windowSize)
@@ -165,7 +174,7 @@ final class WindowMover: NSObject {
             // snap the overlay onto the real frame before it fades, and remember.
             if let actual = animation.window.frame, actual != animation.curve.to {
                 overlay.setFrame(actual)
-                learnLimit(of: animation.window.id, asked: animation.target.size, got: actual.size)
+                learnLimits(of: animation.window.id, asked: animation.target.size, got: actual.size)
             }
             overlay.dismiss()
         }
@@ -215,12 +224,20 @@ final class WindowMover: NSObject {
         }
     }
 
-    private func learnLimit(of id: CGWindowID, asked: CGSize, got: CGSize) {
-        guard got.width < asked.width - 1 || got.height < asked.height - 1 else { return }
-        var max = learnedMaxSizes[id] ?? CGSize(width: CGFloat.infinity, height: CGFloat.infinity)
-        if got.width < asked.width - 1 { max.width = got.width }
-        if got.height < asked.height - 1 { max.height = got.height }
-        learnedMaxSizes[id] = max
+    private func learnLimits(of id: CGWindowID, asked: CGSize, got: CGSize) {
+        var limit = limits[id] ?? SizeLimits()
+        // Refused sizes tighten a limit
+        if got.width > asked.width + 1 { limit.minimum.width = got.width }
+        if got.height > asked.height + 1 { limit.minimum.height = got.height }
+        if got.width < asked.width - 1 { limit.maximum.width = got.width }
+        if got.height < asked.height - 1 { limit.maximum.height = got.height }
+        // Sizes outside a learned limit prove it stale (the app changed it, or
+        // macOS clipped the window to a smaller screen), so drop it
+        if got.width < limit.minimum.width - 1 { limit.minimum.width = 0 }
+        if got.height < limit.minimum.height - 1 { limit.minimum.height = 0 }
+        if got.width > limit.maximum.width + 1 { limit.maximum.width = .infinity }
+        if got.height > limit.maximum.height + 1 { limit.maximum.height = .infinity }
+        limits[id] = limit
     }
 
     private func stopDisplayLink() {
@@ -242,7 +259,9 @@ final class WindowMover: NSObject {
             guard let self, self.generations[window.id] == generation else { return }
             self.busy.remove(window.id)
             self.generations[window.id] = nil
-            completion(window.frame ?? target)
+            let settled = window.frame ?? target
+            self.learnLimits(of: window.id, asked: target.size, got: settled.size)
+            completion(settled)
         }
     }
 }
