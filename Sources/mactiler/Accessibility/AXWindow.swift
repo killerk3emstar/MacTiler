@@ -189,10 +189,10 @@ final class AXWindow {
 
     // MARK: - AXEnhancedUserInterface
 
-    /// Some apps (Chrome, Electron, and any app while an assistive
-    /// tool like VoiceOver is running) set AXEnhancedUserInterface on
-    /// themselves. While it is on they animate or delay every AX frame change,
-    /// which turns our animation into a stutter. Turn it off for the duration
+    /// Assistive tools (VoiceOver and others) set AXEnhancedUserInterface on
+    /// apps to get a richer accessibility tree; Chrome and Electron apps react
+    /// to it in particular. While it is on, the app animates or delays every
+    /// AX frame change, which turns our animation into a stutter. Turn it off for the duration
     /// of a move and put it back afterwards. Returns whether it was on.
     func disableEnhancedUserInterface() -> Bool {
         let app = AXUIElementCreateApplication(pid)
