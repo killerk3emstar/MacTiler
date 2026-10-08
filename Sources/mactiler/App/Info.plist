@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>mactiler</string>
+    <string>MacTiler</string>
     <key>CFBundleIdentifier</key>
     <string>com.mactiler.app</string>
     <key>CFBundleInfoDictionaryVersion</key>

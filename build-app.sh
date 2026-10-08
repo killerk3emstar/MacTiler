@@ -1,21 +1,34 @@
 #!/bin/bash
-set -e
+# Builds MacTiler.app (universal: Apple Silicon + Intel).
+#
+# Signing: set CODESIGN_IDENTITY to a certificate from `security find-identity -v -p codesigning`
+# (e.g. "Apple Development: Name (TEAMID)"). With a stable identity, macOS keeps the
+# Accessibility permission across rebuilds. Without it the app is ad-hoc signed and
+# you have to re-grant Accessibility after every build.
+set -euo pipefail
 
-echo "Building MacTiler..."
-swift build -c release
+APP=MacTiler.app
+BIN_NAME=MacTiler
+
+echo "Building universal release binary..."
+swift build -c release --arch arm64 --arch x86_64
+BIN_DIR=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
 
 echo "Creating app bundle..."
-rm -rf MacTiler.app
-mkdir -p MacTiler.app/Contents/MacOS
-mkdir -p MacTiler.app/Contents/Resources
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN_DIR/mactiler" "$APP/Contents/MacOS/$BIN_NAME"
+cp Sources/mactiler/App/Info.plist "$APP/Contents/"
 
-cp .build/release/mactiler MacTiler.app/Contents/MacOS/MacTiler
-cp Sources/mactiler/App/Info.plist MacTiler.app/Contents/
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    echo "Signing with: $CODESIGN_IDENTITY"
+    codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP"
+else
+    echo "Ad-hoc signing (set CODESIGN_IDENTITY to keep Accessibility permission across builds)"
+    codesign --force --sign - "$APP"
+fi
 
-echo "Done! App bundle created at ./MacTiler.app"
-echo ""
-echo "To install:"
-echo "  cp -r MacTiler.app ~/Applications/"
-echo ""
-echo "To run:"
-echo "  open ~/Applications/MacTiler.app"
+echo "Done: ./$APP"
+echo
+echo "Install:  cp -r $APP ~/Applications/"
+echo "Run:      open ~/Applications/$APP"
